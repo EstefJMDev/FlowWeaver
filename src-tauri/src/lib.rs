@@ -1,5 +1,7 @@
+mod classifier;
 mod commands;
 mod crypto;
+mod importer;
 mod storage;
 
 use commands::DbState;
@@ -13,6 +15,7 @@ pub fn run() {
         .manage(DbState(std::sync::Mutex::new(db)))
         .invoke_handler(tauri::generate_handler![
             commands::import_resource,
+            commands::import_bookmarks,
             commands::set_resource_category,
             commands::get_resources,
             commands::resource_count,

@@ -65,6 +65,17 @@ impl Db {
         Ok(self.conn.last_insert_rowid())
     }
 
+    /// Insert a resource, ignoring if the UUID already exists.
+    /// Returns true if inserted, false if skipped (duplicate UUID).
+    pub fn insert_or_ignore(&self, r: &NewResource) -> Result<bool> {
+        let n = self.conn.execute(
+            "INSERT OR IGNORE INTO resources (uuid, url, title, domain, category)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![r.uuid, r.url, r.title, r.domain, r.category],
+        )?;
+        Ok(n > 0)
+    }
+
     /// Return all resources ordered by id (insertion order).
     pub fn all_resources(&self) -> Result<Vec<Resource>> {
         let mut stmt = self.conn.prepare(

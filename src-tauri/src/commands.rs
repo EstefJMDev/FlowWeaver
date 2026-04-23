@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{Manager, State};
 use uuid::Uuid;
 
-use crate::{crypto, storage::{Db, NewResource, Resource}};
+use crate::{crypto, importer, storage::{Db, NewResource, Resource}};
 
 pub struct DbState(pub std::sync::Mutex<Db>);
 
@@ -48,6 +48,19 @@ pub fn import_resource(
     let uuid = new.uuid.clone();
     db.insert_resource(&new).map_err(|e| e.to_string())?;
     Ok(uuid)
+}
+
+/// Import browser bookmarks as bootstrap data (T-0a-002).
+/// path: optional explicit file path; if omitted, auto-detects Chrome/Edge/Brave.
+#[tauri::command]
+pub fn import_bookmarks(
+    path: Option<String>,
+    state: State<'_, DbState>,
+    app: tauri::AppHandle,
+) -> Result<importer::ImportResult, String> {
+    let key = db_key(&app);
+    let db = state.0.lock().map_err(|e| e.to_string())?;
+    Ok(importer::import(path.as_deref(), &db, &key))
 }
 
 /// Update the category of a resource — called by the Classifier (T-0a-003).
