@@ -800,3 +800,141 @@ body { min-height: 100vh; }
   cursor: pointer;
   line-height: 1.4;
 }
+
+/* ── Panel B — Resumen del workspace (Phase 1) ────────────────────────────── */
+
+.panel-b {
+  width: 280px;
+  flex-shrink: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-bg);
+  border-right: 1px solid var(--color-border);
+}
+
+.panel-b__header {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 14px 16px 10px;
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  background: var(--color-bg);
+  z-index: 10;
+}
+
+.panel-b__title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--color-text-muted);
+}
+
+.panel-b__cluster-count {
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+.panel-b__episode-badge {
+  margin-left: auto;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 7px;
+  background: #1a3a5a;
+  color: var(--color-accent);
+  border-radius: 10px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 120px;
+}
+
+.panel-b__empty {
+  padding: 24px 16px;
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
+.panel-b__cards {
+  padding: 8px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.panel-b__card {
+  margin: 0 8px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 7px;
+  overflow: hidden;
+}
+
+.panel-b__card-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px 5px;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface-2);
+}
+
+.panel-b__domain {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-text);
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.panel-b__category {
+  font-size: 10px;
+  font-weight: 500;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: var(--color-bg);
+  flex-shrink: 0;
+}
+
+.panel-b__category--development { color: var(--cat-development); }
+.panel-b__category--articles    { color: var(--cat-articles); }
+.panel-b__category--notes       { color: var(--cat-notes); }
+.panel-b__category--design      { color: var(--cat-design); }
+.panel-b__category--video       { color: var(--cat-video); }
+.panel-b__category--productivity{ color: var(--cat-productivity); }
+.panel-b__category--research    { color: var(--cat-research); }
+.panel-b__category--social      { color: var(--cat-social); }
+.panel-b__category--commerce    { color: var(--cat-commerce); }
+.panel-b__category--other       { color: var(--cat-other); }
+
+.panel-b__lines {
+  list-style: none;
+  padding: 8px 12px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.panel-b__line {
+  font-size: 12px;
+  color: var(--color-text);
+  line-height: 1.45;
+}
+
+.panel-b__line:first-child {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  font-weight: 500;
+}
+
+.panel-b__line--episode {
+  font-size: 11px;
+  color: var(--color-accent);
+  font-style: italic;
+}

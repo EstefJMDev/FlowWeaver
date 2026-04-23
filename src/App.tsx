@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { PanelA } from "./components/PanelA";
+import { PanelB } from "./components/PanelB";
 import { PanelC } from "./components/PanelC";
 import { EpisodePanel } from "./components/EpisodePanel";
 import { PrivacyDashboard } from "./components/PrivacyDashboard";
@@ -172,6 +173,7 @@ function App() {
 
       <div className="workspace__panels">
         <PanelA clusters={clusters} />
+        <PanelB clusters={clusters} episodes={episodes} />
         <PanelC clusters={clusters} />
       </div>
     </div>
