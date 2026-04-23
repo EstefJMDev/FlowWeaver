@@ -1,6 +1,7 @@
 mod classifier;
 mod commands;
 mod crypto;
+mod grouper;
 mod importer;
 mod storage;
 
@@ -18,6 +19,7 @@ pub fn run() {
             commands::import_bookmarks,
             commands::set_resource_category,
             commands::get_resources,
+            commands::get_clusters,
             commands::resource_count,
         ])
         .run(tauri::generate_context!())

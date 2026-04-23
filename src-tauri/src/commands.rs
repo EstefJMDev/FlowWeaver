@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{Manager, State};
 use uuid::Uuid;
 
-use crate::{crypto, importer, storage::{Db, NewResource, Resource}};
+use crate::{crypto, grouper, importer, storage::{Db, NewResource, Resource}};
 
 pub struct DbState(pub std::sync::Mutex<Db>);
 
@@ -96,6 +96,19 @@ pub fn get_resources(
         })
         .collect();
     Ok(views)
+}
+
+/// Return grouped clusters for Panel A and Panel C (T-0a-004).
+/// Level 1: domain+category. Level 2: shared title tokens.
+/// Stateless — each call re-processes all resources; no DB writes.
+#[tauri::command]
+pub fn get_clusters(
+    state: State<'_, DbState>,
+    app: tauri::AppHandle,
+) -> Result<Vec<grouper::Cluster>, String> {
+    let key = db_key(&app);
+    let db = state.0.lock().map_err(|e| e.to_string())?;
+    grouper::group(&db, &key)
 }
 
 /// Return the number of stored resources.
