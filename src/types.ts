@@ -19,3 +19,31 @@ export interface ImportResult {
   errors: string[];
   sources: string[];
 }
+
+// ── Phase 0b types ────────────────────────────────────────────────────────────
+
+export interface SessionResource {
+  uuid: string;
+  title: string;
+  domain: string;
+  category: string;
+  captured_at: number;
+}
+
+export type DetectionMode = "Precise" | "Broad";
+
+export interface Episode {
+  episode_id: string;
+  label: string;
+  resources: SessionResource[];
+  mode: DetectionMode;
+  coherence: number;
+}
+
+export interface Session {
+  session_id: string;
+  window_start: number;
+  window_end: number;
+  is_bootstrap: boolean;
+  resources: SessionResource[];
+}

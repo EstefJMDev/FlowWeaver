@@ -2,7 +2,15 @@ use serde::{Deserialize, Serialize};
 use tauri::{Manager, State};
 use uuid::Uuid;
 
-use crate::{crypto, grouper, importer, storage::{Db, NewResource, Resource}};
+use crate::{
+    classifier,
+    crypto,
+    episode_detector,
+    grouper,
+    importer,
+    session_builder,
+    storage::{Db, NewResource, Resource},
+};
 
 pub struct DbState(pub std::sync::Mutex<Db>);
 
@@ -44,6 +52,7 @@ pub fn import_resource(
         title: crypto::encrypt(&input.title, &key),
         domain: input.domain,
         category: String::new(),
+        captured_at: 0,
     };
     let uuid = new.uuid.clone();
     db.insert_resource(&new).map_err(|e| e.to_string())?;
@@ -129,6 +138,71 @@ pub fn get_clusters(
 pub fn resource_count(state: State<'_, DbState>) -> Result<i64, String> {
     let db = state.0.lock().map_err(|e| e.to_string())?;
     db.count().map_err(|e| e.to_string())
+}
+
+// ── Phase 0b commands ─────────────────────────────────────────────────────────
+
+/// Return sessions produced by the Session Builder (Phase 0b).
+/// Sessions group resources by temporal proximity (< 24 h window, 3 h gap).
+#[tauri::command]
+pub fn get_sessions(
+    state: State<'_, DbState>,
+    app: tauri::AppHandle,
+) -> Result<Vec<session_builder::Session>, String> {
+    let key = db_key(&app);
+    let db = state.0.lock().map_err(|e| e.to_string())?;
+    session_builder::build_sessions(&db, &key)
+}
+
+/// Return episodes detected by the Episode Detector (Phase 0b).
+/// Runs Session Builder then Episode Detector on each session. Stateless.
+#[tauri::command]
+pub fn get_episodes(
+    state: State<'_, DbState>,
+    app: tauri::AppHandle,
+) -> Result<Vec<episode_detector::Episode>, String> {
+    let key = db_key(&app);
+    let db = state.0.lock().map_err(|e| e.to_string())?;
+    let sessions = session_builder::build_sessions(&db, &key)?;
+    let episodes: Vec<episode_detector::Episode> = sessions
+        .iter()
+        .flat_map(|s| episode_detector::detect(s))
+        .collect();
+    Ok(episodes)
+}
+
+/// Simulate a Share Extension capture: insert a URL with the current timestamp.
+/// Used for desktop testing of the Session Builder and Episode Detector.
+/// In production 0b the iOS Share Extension feeds this path directly.
+#[tauri::command]
+pub fn add_capture(
+    url: String,
+    title: String,
+    state: State<'_, DbState>,
+    app: tauri::AppHandle,
+) -> Result<String, String> {
+    let key = db_key(&app);
+    let db = state.0.lock().map_err(|e| e.to_string())?;
+
+    let classified = classifier::classify(&url);
+    let uuid = Uuid::new_v5(&Uuid::NAMESPACE_URL, url.as_bytes()).to_string();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+
+    let display_title = if title.is_empty() { classified.domain.clone() } else { title.clone() };
+    let new = NewResource {
+        uuid: uuid.clone(),
+        url: crypto::encrypt(&url, &key),
+        title: crypto::encrypt(&display_title, &key),
+        domain: classified.domain,
+        category: classified.category,
+        captured_at: now,
+    };
+
+    db.insert_or_ignore(&new).map_err(|e| e.to_string())?;
+    Ok(uuid)
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

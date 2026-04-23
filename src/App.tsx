@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { PanelA } from "./components/PanelA";
 import { PanelC } from "./components/PanelC";
-import { Cluster, ImportResult } from "./types";
+import { EpisodePanel } from "./components/EpisodePanel";
+import { Cluster, Episode, ImportResult } from "./types";
 import "./App.css";
 
 type Phase = "loading" | "ready" | "empty" | "error";
@@ -10,8 +11,12 @@ type Phase = "loading" | "ready" | "empty" | "error";
 function App() {
   const [phase, setPhase] = useState<Phase>("loading");
   const [clusters, setClusters] = useState<Cluster[]>([]);
+  const [episodes, setEpisodes] = useState<Episode[]>([]);
   const [importSummary, setImportSummary] = useState<string>("");
   const [error, setError] = useState<string>("");
+  const [captureUrl, setCaptureUrl] = useState("");
+  const [captureTitle, setCaptureTitle] = useState("");
+  const [capturing, setCapturing] = useState(false);
   const initialized = useRef(false);
 
   useEffect(() => {
@@ -26,23 +31,22 @@ function App() {
       let ir: ImportResult;
 
       if (htmlContent !== undefined) {
-        // HTML content from frontend file picker
-        ir = await invoke<ImportResult>("import_bookmarks_html", {
-          content: htmlContent,
-        });
+        ir = await invoke<ImportResult>("import_bookmarks_html", { content: htmlContent });
       } else {
-        // Auto-detect Chrome / Edge / Brave bookmark files
         ir = await invoke<ImportResult>("import_bookmarks", { path: null });
       }
 
       if (ir.imported > 0 || ir.skipped > 0) {
-        setImportSummary(
-          `${ir.imported} importados, ${ir.skipped} ya existentes`
-        );
+        setImportSummary(`${ir.imported} importados, ${ir.skipped} ya existentes`);
       }
 
-      const cls = await invoke<Cluster[]>("get_clusters");
+      const [cls, eps] = await Promise.all([
+        invoke<Cluster[]>("get_clusters"),
+        invoke<Episode[]>("get_episodes"),
+      ]);
+
       setClusters(cls);
+      setEpisodes(eps);
       setPhase(cls.length === 0 ? "empty" : "ready");
     } catch (e) {
       setError(String(e));
@@ -55,8 +59,29 @@ function App() {
     if (!file) return;
     const text = await file.text();
     await initWorkspace(text);
-    // Reset input so same file can be re-selected
     e.target.value = "";
+  }
+
+  async function handleCapture(e: React.FormEvent) {
+    e.preventDefault();
+    if (!captureUrl.trim()) return;
+    setCapturing(true);
+    try {
+      await invoke("add_capture", { url: captureUrl.trim(), title: captureTitle.trim() });
+      setCaptureUrl("");
+      setCaptureTitle("");
+      // Refresh episodes and clusters
+      const [cls, eps] = await Promise.all([
+        invoke<Cluster[]>("get_clusters"),
+        invoke<Episode[]>("get_episodes"),
+      ]);
+      setClusters(cls);
+      setEpisodes(eps);
+    } catch {
+      // Ignore capture errors silently
+    } finally {
+      setCapturing(false);
+    }
   }
 
   if (phase === "loading") {
@@ -107,6 +132,30 @@ function App() {
       {importSummary && (
         <div className="workspace__import-banner">{importSummary}</div>
       )}
+
+      {/* Capture form — simulates Share Extension iOS for desktop testing */}
+      <form className="capture-form" onSubmit={handleCapture}>
+        <input
+          className="capture-form__url"
+          type="url"
+          placeholder="https://… (capturar URL)"
+          value={captureUrl}
+          onChange={(e) => setCaptureUrl(e.target.value)}
+        />
+        <input
+          className="capture-form__title"
+          type="text"
+          placeholder="Título (opcional)"
+          value={captureTitle}
+          onChange={(e) => setCaptureTitle(e.target.value)}
+        />
+        <button className="capture-form__btn" type="submit" disabled={capturing}>
+          {capturing ? "…" : "Capturar"}
+        </button>
+      </form>
+
+      {episodes.length > 0 && <EpisodePanel episodes={episodes} />}
+
       <div className="workspace__panels">
         <PanelA clusters={clusters} />
         <PanelC clusters={clusters} />

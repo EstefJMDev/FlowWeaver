@@ -126,8 +126,14 @@ fn collect_chrome_nodes(node: &serde_json::Value, db: &Db, key: &str, r: &mut Im
         Some("url") => {
             let url = node.get("url").and_then(|u| u.as_str()).unwrap_or("");
             let title = node.get("name").and_then(|n| n.as_str()).unwrap_or("");
+            // date_added: microseconds since Windows FILETIME epoch (1601-01-01)
+            let captured_at = node
+                .get("date_added")
+                .and_then(|d| d.as_str())
+                .map(chrome_date_to_unix)
+                .unwrap_or(0);
             if url.starts_with("http://") || url.starts_with("https://") {
-                insert_bookmark(url, title, db, key, r);
+                insert_bookmark(url, title, captured_at, db, key, r);
             }
         }
         Some("folder") => {
@@ -139,6 +145,17 @@ fn collect_chrome_nodes(node: &serde_json::Value, db: &Db, key: &str, r: &mut Im
         }
         _ => {}
     }
+}
+
+/// Convert Chrome's date_added (microseconds since 1601-01-01) to Unix seconds.
+fn chrome_date_to_unix(date_added: &str) -> i64 {
+    // Difference between Windows FILETIME epoch and Unix epoch in microseconds
+    const DELTA_US: i64 = 11_644_473_600_000_000;
+    date_added
+        .parse::<i64>()
+        .map(|us| (us - DELTA_US) / 1_000_000)
+        .unwrap_or(0)
+        .max(0)
 }
 
 // ── Netscape HTML export ──────────────────────────────────────────────────────
@@ -172,9 +189,14 @@ pub fn import_html_content(content: &str, db: &Db, key: &str) -> ImportResult {
             let after = tag_end + 1;
             let title_len = lower[after..].find("</a>").unwrap_or(0);
             let title = html_decode(content[after..after + title_len].trim());
+            // ADD_DATE is Unix seconds; use 0 if absent (no timestamp in HTML exports)
+            let captured_at = attr_value(tag, tag_l, "add_date")
+                .and_then(|s| s.parse::<i64>().ok())
+                .unwrap_or(0)
+                .max(0);
 
             if url.starts_with("http://") || url.starts_with("https://") {
-                insert_bookmark(&url, &title, db, key, &mut result);
+                insert_bookmark(&url, &title, captured_at, db, key, &mut result);
             }
             pos = after + title_len + 4; // past </a>
         } else {
@@ -204,7 +226,7 @@ fn html_decode(s: &str) -> String {
 
 // ── Shared insert ─────────────────────────────────────────────────────────────
 
-fn insert_bookmark(url: &str, title: &str, db: &Db, key: &str, result: &mut ImportResult) {
+fn insert_bookmark(url: &str, title: &str, captured_at: i64, db: &Db, key: &str, result: &mut ImportResult) {
     let classified = classifier::classify(url);
     // UUID v5 derived from URL — same URL always produces same UUID, enabling
     // idempotent re-import without a URL index on the encrypted column.
@@ -217,6 +239,7 @@ fn insert_bookmark(url: &str, title: &str, db: &Db, key: &str, result: &mut Impo
         title: crypto::encrypt(display_title, key),
         domain: classified.domain,
         category: classified.category,
+        captured_at,
     };
 
     match db.insert_or_ignore(&new) {

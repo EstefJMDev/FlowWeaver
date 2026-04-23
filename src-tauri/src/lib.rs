@@ -1,8 +1,10 @@
 mod classifier;
 mod commands;
 mod crypto;
+mod episode_detector;
 mod grouper;
 mod importer;
+mod session_builder;
 mod storage;
 
 use commands::DbState;
@@ -22,6 +24,9 @@ pub fn run() {
             commands::get_resources,
             commands::get_clusters,
             commands::resource_count,
+            commands::get_sessions,
+            commands::get_episodes,
+            commands::add_capture,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
