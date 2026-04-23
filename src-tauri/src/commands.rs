@@ -63,6 +63,19 @@ pub fn import_bookmarks(
     Ok(importer::import(path.as_deref(), &db, &key))
 }
 
+/// Import bookmarks from HTML content sent by the frontend file picker.
+/// Used when auto-detect finds no browser files and the user exports to HTML.
+#[tauri::command]
+pub fn import_bookmarks_html(
+    content: String,
+    state: State<'_, DbState>,
+    app: tauri::AppHandle,
+) -> Result<importer::ImportResult, String> {
+    let key = db_key(&app);
+    let db = state.0.lock().map_err(|e| e.to_string())?;
+    Ok(importer::import_html_content(&content, &db, &key))
+}
+
 /// Update the category of a resource — called by the Classifier (T-0a-003).
 #[tauri::command]
 pub fn set_resource_category(

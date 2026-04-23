@@ -145,6 +145,12 @@ fn collect_chrome_nodes(node: &serde_json::Value, db: &Db, key: &str, r: &mut Im
 
 fn import_html(path: &Path, db: &Db, key: &str) -> Result<ImportResult, String> {
     let content = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+    Ok(import_html_content(&content, db, key))
+}
+
+/// Parse Netscape HTML bookmark content passed directly as a string.
+/// Used when the frontend reads the file and sends the content via IPC.
+pub fn import_html_content(content: &str, db: &Db, key: &str) -> ImportResult {
     let lower = content.to_lowercase();
     let mut result = ImportResult::default();
     let mut pos = 0;
@@ -176,7 +182,7 @@ fn import_html(path: &Path, db: &Db, key: &str) -> Result<ImportResult, String> 
         }
     }
 
-    Ok(result)
+    result
 }
 
 fn attr_value(tag: &str, tag_lower: &str, name: &str) -> Option<String> {

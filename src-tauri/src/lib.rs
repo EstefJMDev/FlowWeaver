@@ -17,6 +17,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::import_resource,
             commands::import_bookmarks,
+            commands::import_bookmarks_html,
             commands::set_resource_category,
             commands::get_resources,
             commands::get_clusters,
