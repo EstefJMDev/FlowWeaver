@@ -47,3 +47,21 @@ export interface Session {
   is_bootstrap: boolean;
   resources: SessionResource[];
 }
+
+// ── Phase 0b — Privacy Dashboard (D14) ───────────────────────────────────────
+
+export interface CategoryCount {
+  category: string;
+  count: number;
+}
+
+export interface DomainCount {
+  domain: string;
+  count: number;
+}
+
+export interface PrivacyStats {
+  resource_count: number;
+  categories: CategoryCount[];
+  domains: DomainCount[];
+}

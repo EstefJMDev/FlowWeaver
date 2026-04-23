@@ -27,6 +27,8 @@ pub fn run() {
             commands::get_sessions,
             commands::get_episodes,
             commands::add_capture,
+            commands::get_privacy_stats,
+            commands::clear_all_resources,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

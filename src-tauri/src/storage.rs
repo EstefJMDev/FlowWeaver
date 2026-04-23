@@ -2,6 +2,29 @@ use rusqlite::{Connection, Result, params};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
+// ── Privacy Dashboard types (Phase 0b, D14) ──────────────────────────────────
+
+#[derive(Debug, Serialize)]
+pub struct CategoryCount {
+    pub category: String,
+    pub count: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct DomainCount {
+    pub domain: String,
+    pub count: i64,
+}
+
+/// Aggregate stats exposed by the Privacy Dashboard.
+/// Only domain and category fields are used — url/title stay encrypted (D1).
+#[derive(Debug, Serialize)]
+pub struct PrivacyStats {
+    pub resource_count: i64,
+    pub categories: Vec<CategoryCount>,
+    pub domains: Vec<DomainCount>,
+}
+
 /// A single bookmark resource as stored in SQLCipher.
 /// Fields match the schema defined in TS-0a-007.
 /// url and title are stored encrypted; domain and category are stored in clear (D1).
@@ -122,5 +145,36 @@ impl Db {
             [],
             |row| row.get(0),
         )
+    }
+
+    /// Return aggregate stats for the Privacy Dashboard.
+    /// Queries only domain and category columns (in clear per D1).
+    pub fn privacy_stats(&self) -> Result<PrivacyStats> {
+        let resource_count: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM resources", [], |row| row.get(0),
+        )?;
+
+        let mut stmt = self.conn.prepare(
+            "SELECT category, COUNT(*) AS cnt FROM resources
+             GROUP BY category ORDER BY cnt DESC",
+        )?;
+        let categories: Vec<CategoryCount> = stmt
+            .query_map([], |row| Ok(CategoryCount { category: row.get(0)?, count: row.get(1)? }))?
+            .collect::<Result<Vec<_>>>()?;
+
+        let mut stmt = self.conn.prepare(
+            "SELECT domain, COUNT(*) AS cnt FROM resources
+             GROUP BY domain ORDER BY cnt DESC LIMIT 20",
+        )?;
+        let domains: Vec<DomainCount> = stmt
+            .query_map([], |row| Ok(DomainCount { domain: row.get(0)?, count: row.get(1)? }))?
+            .collect::<Result<Vec<_>>>()?;
+
+        Ok(PrivacyStats { resource_count, categories, domains })
+    }
+
+    /// Delete all resources. Called by the Privacy Dashboard clear action.
+    pub fn delete_all(&self) -> Result<usize> {
+        self.conn.execute("DELETE FROM resources", [])
     }
 }

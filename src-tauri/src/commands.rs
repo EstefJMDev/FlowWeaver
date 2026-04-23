@@ -9,7 +9,7 @@ use crate::{
     grouper,
     importer,
     session_builder,
-    storage::{Db, NewResource, Resource},
+    storage::{Db, NewResource, PrivacyStats, Resource},
 };
 
 pub struct DbState(pub std::sync::Mutex<Db>);
@@ -203,6 +203,24 @@ pub fn add_capture(
 
     db.insert_or_ignore(&new).map_err(|e| e.to_string())?;
     Ok(uuid)
+}
+
+// ── Phase 0b — Privacy Dashboard (D14) ───────────────────────────────────────
+
+/// Return aggregate stats for the Privacy Dashboard.
+/// Only category and domain columns are exposed — url/title remain encrypted (D1).
+#[tauri::command]
+pub fn get_privacy_stats(state: State<'_, DbState>) -> Result<PrivacyStats, String> {
+    let db = state.0.lock().map_err(|e| e.to_string())?;
+    db.privacy_stats().map_err(|e| e.to_string())
+}
+
+/// Delete all resources. Called from the Privacy Dashboard clear action.
+/// Irreversible — the frontend must confirm before invoking this.
+#[tauri::command]
+pub fn clear_all_resources(state: State<'_, DbState>) -> Result<usize, String> {
+    let db = state.0.lock().map_err(|e| e.to_string())?;
+    db.delete_all().map_err(|e| e.to_string())
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

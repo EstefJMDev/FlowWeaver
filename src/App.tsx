@@ -3,6 +3,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { PanelA } from "./components/PanelA";
 import { PanelC } from "./components/PanelC";
 import { EpisodePanel } from "./components/EpisodePanel";
+import { PrivacyDashboard } from "./components/PrivacyDashboard";
+import { AnticipatedWorkspace } from "./components/AnticipatedWorkspace";
 import { Cluster, Episode, ImportResult } from "./types";
 import "./App.css";
 
@@ -70,7 +72,6 @@ function App() {
       await invoke("add_capture", { url: captureUrl.trim(), title: captureTitle.trim() });
       setCaptureUrl("");
       setCaptureTitle("");
-      // Refresh episodes and clusters
       const [cls, eps] = await Promise.all([
         invoke<Cluster[]>("get_clusters"),
         invoke<Episode[]>("get_episodes"),
@@ -78,10 +79,17 @@ function App() {
       setClusters(cls);
       setEpisodes(eps);
     } catch {
-      // Ignore capture errors silently
+      // ignore
     } finally {
       setCapturing(false);
     }
+  }
+
+  async function handleDataCleared() {
+    setClusters([]);
+    setEpisodes([]);
+    setImportSummary("");
+    setPhase("empty");
   }
 
   if (phase === "loading") {
@@ -129,30 +137,36 @@ function App() {
 
   return (
     <div className="workspace">
-      {importSummary && (
-        <div className="workspace__import-banner">{importSummary}</div>
-      )}
+      <div className="workspace__topbar">
+        {importSummary && (
+          <span className="workspace__import-summary">{importSummary}</span>
+        )}
+        <div className="workspace__topbar-actions">
+          {/* Capture form — simulates Share Extension iOS for desktop testing */}
+          <form className="capture-form" onSubmit={handleCapture}>
+            <input
+              className="capture-form__url"
+              type="url"
+              placeholder="https://… (capturar URL)"
+              value={captureUrl}
+              onChange={(e) => setCaptureUrl(e.target.value)}
+            />
+            <input
+              className="capture-form__title"
+              type="text"
+              placeholder="Título (opcional)"
+              value={captureTitle}
+              onChange={(e) => setCaptureTitle(e.target.value)}
+            />
+            <button className="capture-form__btn" type="submit" disabled={capturing}>
+              {capturing ? "…" : "Capturar"}
+            </button>
+          </form>
+          <PrivacyDashboard onDataCleared={handleDataCleared} />
+        </div>
+      </div>
 
-      {/* Capture form — simulates Share Extension iOS for desktop testing */}
-      <form className="capture-form" onSubmit={handleCapture}>
-        <input
-          className="capture-form__url"
-          type="url"
-          placeholder="https://… (capturar URL)"
-          value={captureUrl}
-          onChange={(e) => setCaptureUrl(e.target.value)}
-        />
-        <input
-          className="capture-form__title"
-          type="text"
-          placeholder="Título (opcional)"
-          value={captureTitle}
-          onChange={(e) => setCaptureTitle(e.target.value)}
-        />
-        <button className="capture-form__btn" type="submit" disabled={capturing}>
-          {capturing ? "…" : "Capturar"}
-        </button>
-      </form>
+      <AnticipatedWorkspace episodes={episodes} />
 
       {episodes.length > 0 && <EpisodePanel episodes={episodes} />}
 
