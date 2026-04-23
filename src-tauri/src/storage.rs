@@ -178,3 +178,68 @@ impl Db {
         self.conn.execute("DELETE FROM resources", [])
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn open_mem() -> Db {
+        let db = Db::open(Path::new(":memory:"), "test-key").expect("open failed");
+        db.migrate().expect("migrate failed");
+        db
+    }
+
+    fn insert(db: &Db, domain: &str, category: &str) {
+        db.insert_resource(&NewResource {
+            uuid: uuid::Uuid::new_v4().to_string(),
+            url: format!("enc-{domain}"),
+            title: format!("enc-title-{domain}"),
+            domain: domain.into(),
+            category: category.into(),
+            captured_at: 0,
+        }).expect("insert failed");
+    }
+
+    #[test]
+    fn privacy_stats_empty_db() {
+        let db = open_mem();
+        let stats = db.privacy_stats().expect("stats failed");
+        assert_eq!(stats.resource_count, 0);
+        assert!(stats.categories.is_empty());
+        assert!(stats.domains.is_empty());
+    }
+
+    #[test]
+    fn privacy_stats_counts_categories_and_domains() {
+        let db = open_mem();
+        insert(&db, "github.com", "development");
+        insert(&db, "github.com", "development");
+        insert(&db, "medium.com", "articles");
+
+        let stats = db.privacy_stats().expect("stats failed");
+        assert_eq!(stats.resource_count, 3);
+
+        let dev = stats.categories.iter().find(|c| c.category == "development").unwrap();
+        assert_eq!(dev.count, 2);
+        let art = stats.categories.iter().find(|c| c.category == "articles").unwrap();
+        assert_eq!(art.count, 1);
+
+        let gh = stats.domains.iter().find(|d| d.domain == "github.com").unwrap();
+        assert_eq!(gh.count, 2);
+    }
+
+    #[test]
+    fn delete_all_clears_table() {
+        let db = open_mem();
+        insert(&db, "github.com", "development");
+        insert(&db, "medium.com", "articles");
+        assert_eq!(db.count().unwrap(), 2);
+
+        db.delete_all().expect("delete_all failed");
+        assert_eq!(db.count().unwrap(), 0);
+
+        let stats = db.privacy_stats().expect("stats after delete failed");
+        assert_eq!(stats.resource_count, 0);
+        assert!(stats.categories.is_empty());
+    }
+}
