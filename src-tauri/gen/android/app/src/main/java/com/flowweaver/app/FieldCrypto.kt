@@ -76,8 +76,10 @@ object FieldCrypto {
 
     // ── Detection ────────────────────────────────────────────────────────────────
 
-    fun isXorEncrypted(hex: String): Boolean =
-        (hex.hexToByteArray() ?: return false).startsWith(MAGIC_XOR)
+    fun isXorEncrypted(hex: String): Boolean {
+        val bytes = hex.hexToByteArray() ?: return false
+        return bytes.startsWith(MAGIC_XOR)
+    }
 
     // ── Migration: XOR (fw0a) → AES-256-GCM (fw1a) ──────────────────────────────
 

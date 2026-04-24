@@ -86,9 +86,10 @@ class ShareIntentActivity : Activity() {
         val domain   = extractDomain(rawText)
         val category = classifyDomain(domain)
 
-        // D1: encrypt url and title with Android Keystore AES-256-GCM before any storage.
-        val urlEncrypted   = FieldCrypto.encrypt(rawText)
-        val titleEncrypted = FieldCrypto.encrypt(titleRaw)
+        // D1: encrypt url and title with AES-256-GCM before any storage.
+        val fieldKey       = FieldCrypto.deriveKey(FieldCrypto.FIELD_KEY_PASSPHRASE)
+        val urlEncrypted   = FieldCrypto.encrypt(rawText, fieldKey)
+        val titleEncrypted = FieldCrypto.encrypt(titleRaw, fieldKey)
 
         // Build raw_event JSON — matches TS-0b-android-001 schema.
         // domain and category are in clear (D1). url and title are encrypted.
