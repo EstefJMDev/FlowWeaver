@@ -14,6 +14,7 @@ mod drive_relay;
 use commands::DbState;
 use storage::Db;
 
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let db = setup_db();
 
