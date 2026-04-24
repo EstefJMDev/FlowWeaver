@@ -6,12 +6,14 @@ import { PanelC } from "./components/PanelC";
 import { EpisodePanel } from "./components/EpisodePanel";
 import { PrivacyDashboard } from "./components/PrivacyDashboard";
 import { AnticipatedWorkspace } from "./components/AnticipatedWorkspace";
+import { MobileGallery } from "./components/MobileGallery";
 import { Cluster, Episode, ImportResult } from "./types";
 import "./App.css";
 
 type Phase = "loading" | "ready" | "empty" | "error";
 
 function App() {
+  const [platform, setPlatform] = useState<string | null>(null);
   const [phase, setPhase] = useState<Phase>("loading");
   const [clusters, setClusters] = useState<Cluster[]>([]);
   const [episodes, setEpisodes] = useState<Episode[]>([]);
@@ -25,8 +27,22 @@ function App() {
   useEffect(() => {
     if (initialized.current) return;
     initialized.current = true;
-    initWorkspace();
+    detectPlatformAndInit();
   }, []);
+
+  async function detectPlatformAndInit() {
+    try {
+      const p = await invoke<string>("get_platform");
+      setPlatform(p);
+      if (p !== "android") {
+        await initWorkspace();
+      }
+    } catch {
+      // fallback to desktop behaviour on error
+      setPlatform("desktop");
+      await initWorkspace();
+    }
+  }
 
   async function initWorkspace(htmlContent?: string) {
     setPhase("loading");
@@ -93,7 +109,12 @@ function App() {
     setPhase("empty");
   }
 
-  if (phase === "loading") {
+  // Android: render mobile gallery, skip desktop workspace entirely
+  if (platform === "android") {
+    return <MobileGallery />;
+  }
+
+  if (platform === null || phase === "loading") {
     return (
       <div className="workspace workspace--center">
         <p className="workspace__status">Cargando workspace…</p>

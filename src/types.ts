@@ -65,3 +65,18 @@ export interface PrivacyStats {
   categories: CategoryCount[];
   domains: DomainCount[];
 }
+
+// ── Phase 0c — Android gallery ────────────────────────────────────────────────
+
+export interface MobileResource {
+  uuid: string;
+  domain: string;
+  category: string;
+  title: string;
+  captured_at: number;
+}
+
+export interface CategoryGroup {
+  category: string;
+  resources: MobileResource[];
+}
