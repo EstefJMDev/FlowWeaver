@@ -80,9 +80,21 @@ pub fn run() {
 }
 
 fn setup_db() -> Db {
+    // On Android, temp_dir() resolves to the app's cache dir
+    // (/data/data/{pkg}/cache). SQLiteOpenHelper stores databases one level up
+    // at /data/data/{pkg}/databases/ — we derive that same path so Kotlin and
+    // Rust share a single SQLite file.
+    #[cfg(target_os = "android")]
+    let data_dir = std::env::temp_dir()    // /data/data/{pkg}/cache
+        .parent()
+        .map(|p| p.join("databases"))
+        .unwrap_or_else(|| std::env::temp_dir().join("flowweaver"));
+
+    #[cfg(not(target_os = "android"))]
     let data_dir = dirs_next::data_local_dir()
         .unwrap_or_else(std::env::temp_dir)
         .join("flowweaver");
+
     std::fs::create_dir_all(&data_dir).expect("cannot create data dir");
     let db_path = data_dir.join("resources.db");
     let key = format!("fw-{}", data_dir.to_string_lossy());
