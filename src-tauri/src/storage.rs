@@ -1,4 +1,5 @@
 use rusqlite::{Connection, Result, params};
+use uuid::Uuid;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
@@ -67,10 +68,8 @@ impl Db {
         Ok(Self { conn })
     }
 
-    /// Create the `resources` table and its UUID index if they do not exist.
-    /// Adds captured_at column for Phase 0b Session Builder (migration-safe).
+    /// Create all tables and indexes. Migration-safe (CREATE IF NOT EXISTS + ALTER).
     pub fn migrate(&self) -> Result<()> {
-        // Create table with full 0b schema for new installs.
         self.conn.execute_batch("
             CREATE TABLE IF NOT EXISTS resources (
                 id          INTEGER PRIMARY KEY,
@@ -82,12 +81,98 @@ impl Db {
                 captured_at INTEGER NOT NULL DEFAULT 0
             );
             CREATE UNIQUE INDEX IF NOT EXISTS idx_resources_uuid ON resources(uuid);
+
+            CREATE TABLE IF NOT EXISTS relay_events (
+                event_id      TEXT PRIMARY KEY,
+                resource_uuid TEXT NOT NULL,
+                device_id     TEXT NOT NULL,
+                platform      TEXT NOT NULL DEFAULT 'desktop',
+                uploaded_at   INTEGER,
+                acked_at      INTEGER,
+                retry_count   INTEGER NOT NULL DEFAULT 0
+            );
         ")?;
-        // Add captured_at to existing 0a databases. Silently ignore if already present.
         let _ = self.conn.execute_batch(
             "ALTER TABLE resources ADD COLUMN captured_at INTEGER NOT NULL DEFAULT 0;"
         );
         Ok(())
+    }
+
+    // ── Relay events (T-0c-002 desktop side) ──────────────────────────────────
+
+    /// Enqueue a resource for relay upload. Idempotent on event_id.
+    pub fn enqueue_relay_event(
+        &self,
+        event_id: &str,
+        resource_uuid: &str,
+        device_id: &str,
+    ) -> Result<()> {
+        self.conn.execute(
+            "INSERT OR IGNORE INTO relay_events (event_id, resource_uuid, device_id, platform)
+             VALUES (?1, ?2, ?3, 'desktop')",
+            params![event_id, resource_uuid, device_id],
+        )?;
+        Ok(())
+    }
+
+    /// Return events not yet uploaded (uploaded_at IS NULL) with retry_count < 5.
+    pub fn pending_relay_events(&self) -> Result<Vec<(String, String)>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT event_id, resource_uuid FROM relay_events
+             WHERE uploaded_at IS NULL AND retry_count < 5
+             ORDER BY rowid LIMIT 50",
+        )?;
+        let rows: Vec<(String, String)> = stmt
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<Result<Vec<_>>>()?;
+        Ok(rows)
+    }
+
+    pub fn mark_relay_uploaded(&self, event_id: &str, ts: i64) -> Result<()> {
+        self.conn.execute(
+            "UPDATE relay_events SET uploaded_at = ?1 WHERE event_id = ?2",
+            params![ts, event_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn mark_relay_acked(&self, event_id: &str, ts: i64) -> Result<()> {
+        self.conn.execute(
+            "UPDATE relay_events SET acked_at = ?1 WHERE event_id = ?2",
+            params![ts, event_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn increment_relay_retry(&self, event_id: &str) -> Result<()> {
+        self.conn.execute(
+            "UPDATE relay_events SET retry_count = retry_count + 1 WHERE event_id = ?1",
+            params![event_id],
+        )?;
+        Ok(())
+    }
+
+    /// Create relay_event entries for resources that have no relay_event yet.
+    /// Used after bulk imports (import_bookmarks) to enqueue all new resources at once.
+    pub fn enqueue_unrelayed_resources(&self, device_id: &str) -> Result<usize> {
+        let mut stmt = self.conn.prepare(
+            "SELECT uuid FROM resources r
+             WHERE NOT EXISTS (
+                 SELECT 1 FROM relay_events re WHERE re.resource_uuid = r.uuid
+             )",
+        )?;
+        let uuids: Vec<String> = stmt
+            .query_map([], |r| r.get(0))?
+            .collect::<Result<Vec<_>>>()?;
+        for uuid in &uuids {
+            let event_id = Uuid::new_v4().to_string();
+            self.conn.execute(
+                "INSERT OR IGNORE INTO relay_events (event_id, resource_uuid, device_id, platform)
+                 VALUES (?1, ?2, ?3, 'desktop')",
+                params![event_id, uuid, device_id],
+            )?;
+        }
+        Ok(uuids.len())
     }
 
     /// Insert a new resource. url and title must already be encrypted by the caller.

@@ -63,14 +63,19 @@ pub fn import_resource(
     let db = state.0.lock().map_err(|e| e.to_string())?;
     let new = NewResource {
         uuid: Uuid::new_v4().to_string(),
-        url: crypto::encrypt(&input.url, &key),
-        title: crypto::encrypt(&input.title, &key),
+        url: crypto::encrypt_aes(&input.url, &key),
+        title: crypto::encrypt_aes(&input.title, &key),
         domain: input.domain,
         category: String::new(),
         captured_at: 0,
     };
     let uuid = new.uuid.clone();
     db.insert_resource(&new).map_err(|e| e.to_string())?;
+    #[cfg(not(target_os = "android"))]
+    {
+        let event_id = Uuid::new_v4().to_string();
+        let _ = db.enqueue_relay_event(&event_id, &uuid, &relay_device_id(&app));
+    }
     Ok(uuid)
 }
 
@@ -84,7 +89,10 @@ pub fn import_bookmarks(
 ) -> Result<importer::ImportResult, String> {
     let key = db_key(&app);
     let db = state.0.lock().map_err(|e| e.to_string())?;
-    Ok(importer::import(path.as_deref(), &db, &key))
+    let result = importer::import(path.as_deref(), &db, &key);
+    #[cfg(not(target_os = "android"))]
+    let _ = db.enqueue_unrelayed_resources(&relay_device_id(&app));
+    Ok(result)
 }
 
 /// Import bookmarks from HTML content sent by the frontend file picker.
@@ -97,7 +105,10 @@ pub fn import_bookmarks_html(
 ) -> Result<importer::ImportResult, String> {
     let key = db_key(&app);
     let db = state.0.lock().map_err(|e| e.to_string())?;
-    Ok(importer::import_html_content(&content, &db, &key))
+    let result = importer::import_html_content(&content, &db, &key);
+    #[cfg(not(target_os = "android"))]
+    let _ = db.enqueue_unrelayed_resources(&relay_device_id(&app));
+    Ok(result)
 }
 
 /// Update the category of a resource — called by the Classifier (T-0a-003).
@@ -209,14 +220,19 @@ pub fn add_capture(
     let display_title = if title.is_empty() { classified.domain.clone() } else { title.clone() };
     let new = NewResource {
         uuid: uuid.clone(),
-        url: crypto::encrypt(&url, &key),
-        title: crypto::encrypt(&display_title, &key),
+        url: crypto::encrypt_aes(&url, &key),
+        title: crypto::encrypt_aes(&display_title, &key),
         domain: classified.domain,
         category: classified.category,
         captured_at: now,
     };
 
     db.insert_or_ignore(&new).map_err(|e| e.to_string())?;
+    #[cfg(not(target_os = "android"))]
+    {
+        let event_id = Uuid::new_v4().to_string();
+        let _ = db.enqueue_relay_event(&event_id, &uuid, &relay_device_id(&app));
+    }
     Ok(uuid)
 }
 
@@ -309,6 +325,64 @@ pub fn get_mobile_resources(
     Ok(groups)
 }
 
+// ── Phase 0c — Drive relay configuration ─────────────────────────────────────
+
+#[derive(Debug, serde::Deserialize)]
+pub struct DriveConfigInput {
+    pub client_id: String,
+    pub client_secret: String,
+    pub access_token: String,
+    pub refresh_token: String,
+    pub expires_at: i64,
+    pub paired_android_id: String,
+    pub shared_key_hex: String,
+}
+
+/// Write the Google Drive relay configuration (encrypted).
+/// Required before the relay loop can upload or download events.
+/// Returns the desktop device_id for display / QR pairing.
+#[tauri::command]
+pub fn configure_drive(
+    input: DriveConfigInput,
+    app: tauri::AppHandle,
+) -> Result<String, String> {
+    #[cfg(not(target_os = "android"))]
+    {
+        let app_data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+        let local_key = format!("fw-{}", app_data_dir.to_string_lossy());
+        let device_id = crate::drive_relay::desktop_device_id(&app_data_dir);
+        let config = crate::drive_relay::DriveConfig {
+            client_id: input.client_id,
+            client_secret: input.client_secret,
+            access_token: input.access_token,
+            refresh_token: input.refresh_token,
+            expires_at: input.expires_at,
+            device_id: device_id.clone(),
+            paired_android_id: input.paired_android_id,
+            shared_key_hex: input.shared_key_hex,
+        };
+        let config_path = crate::drive_relay::config_path(&app_data_dir);
+        config.save_encrypted(&config_path, &local_key);
+        return Ok(device_id);
+    }
+    #[cfg(target_os = "android")]
+    Err("configure_drive is not available on Android".to_string())
+}
+
+/// Return the stable device_id for this installation (for QR pairing display).
+#[tauri::command]
+pub fn get_relay_device_id(app: tauri::AppHandle) -> String {
+    #[cfg(not(target_os = "android"))]
+    {
+        app.path()
+            .app_data_dir()
+            .map(|p| crate::drive_relay::desktop_device_id(&p))
+            .unwrap_or_else(|_| "desktop-fallback".to_string())
+    }
+    #[cfg(target_os = "android")]
+    "android-not-configured".to_string()
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /// Derive the field-level encryption key for url/title in SQLite.
@@ -331,4 +405,13 @@ fn db_key(app: &tauri::AppHandle) -> String {
             .map(|p| format!("fw-{}", p.to_string_lossy()))
             .unwrap_or_else(|_| "flowweaver-fallback-key".to_string())
     }
+}
+
+/// Return the relay device_id for the current installation (desktop only).
+#[cfg(not(target_os = "android"))]
+fn relay_device_id(app: &tauri::AppHandle) -> String {
+    app.path()
+        .app_data_dir()
+        .map(|p| crate::drive_relay::desktop_device_id(&p))
+        .unwrap_or_else(|_| "desktop-fallback".to_string())
 }
