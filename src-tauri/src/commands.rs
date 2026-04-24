@@ -33,6 +33,21 @@ pub struct ResourceView {
     // url is intentionally omitted from the view layer (D1)
 }
 
+#[derive(Debug, Serialize)]
+pub struct MobileResource {
+    pub uuid: String,
+    pub domain: String,
+    pub category: String,
+    pub title: String,
+    pub captured_at: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CategoryGroup {
+    pub category: String,
+    pub resources: Vec<MobileResource>,
+}
+
 // ── Tauri commands ────────────────────────────────────────────────────────────
 
 /// Import a single resource into SQLCipher.
@@ -221,6 +236,46 @@ pub fn get_privacy_stats(state: State<'_, DbState>) -> Result<PrivacyStats, Stri
 pub fn clear_all_resources(state: State<'_, DbState>) -> Result<usize, String> {
     let db = state.0.lock().map_err(|e| e.to_string())?;
     db.delete_all().map_err(|e| e.to_string())
+}
+
+// ── Phase 0c — Mobile commands ────────────────────────────────────────────────
+
+/// Return resources grouped by category for the Android gallery (T-0c-001).
+/// title is decrypted; url is omitted (D1). Groups sorted alphabetically;
+/// resources within each group sorted by captured_at descending.
+#[tauri::command]
+pub fn get_mobile_resources(
+    state: State<'_, DbState>,
+    app: tauri::AppHandle,
+) -> Result<Vec<CategoryGroup>, String> {
+    let key = db_key(&app);
+    let db = state.0.lock().map_err(|e| e.to_string())?;
+    let rows = db.all_resources().map_err(|e| e.to_string())?;
+
+    let mut map: std::collections::HashMap<String, Vec<MobileResource>> =
+        std::collections::HashMap::new();
+
+    for r in rows {
+        let title = crypto::decrypt(&r.title, &key).unwrap_or_default();
+        map.entry(r.category.clone()).or_default().push(MobileResource {
+            uuid: r.uuid,
+            domain: r.domain,
+            category: r.category,
+            title,
+            captured_at: r.captured_at,
+        });
+    }
+
+    let mut groups: Vec<CategoryGroup> = map
+        .into_iter()
+        .map(|(category, mut resources)| {
+            resources.sort_by(|a, b| b.captured_at.cmp(&a.captured_at));
+            CategoryGroup { category, resources }
+        })
+        .collect();
+    groups.sort_by(|a, b| a.category.cmp(&b.category));
+
+    Ok(groups)
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

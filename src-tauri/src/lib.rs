@@ -29,6 +29,7 @@ pub fn run() {
             commands::add_capture,
             commands::get_privacy_stats,
             commands::clear_all_resources,
+            commands::get_mobile_resources,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
