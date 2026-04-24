@@ -175,6 +175,26 @@ impl Db {
         Ok(PrivacyStats { resource_count, categories, domains })
     }
 
+    /// Return a single resource by uuid, or None if not found.
+    pub fn get_by_uuid(&self, uuid: &str) -> Result<Option<Resource>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, uuid, url, title, domain, category, captured_at
+             FROM resources WHERE uuid = ?1",
+        )?;
+        let mut rows = stmt.query_map([uuid], |row| {
+            Ok(Resource {
+                id: row.get(0)?,
+                uuid: row.get(1)?,
+                url: row.get(2)?,
+                title: row.get(3)?,
+                domain: row.get(4)?,
+                category: row.get(5)?,
+                captured_at: row.get(6)?,
+            })
+        })?;
+        Ok(rows.next().transpose()?)
+    }
+
     /// Delete all resources. Called by the Privacy Dashboard clear action.
     pub fn delete_all(&self) -> Result<usize> {
         self.conn.execute("DELETE FROM resources", [])

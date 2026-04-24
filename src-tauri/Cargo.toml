@@ -20,12 +20,20 @@ serde_json = "1"
 uuid = { version = "1", features = ["v4", "v5"] }
 hex = "0.4"
 dirs-next = "2"
+# AES-256-GCM field-level encryption — replaces XOR on Android (R-0c-001), D1 upgrade
+aes-gcm = "0.10"
+rand = { version = "0.8", features = ["getrandom"] }
+sha2 = "0.10"
+# Async time for background relay loop (Tauri async runtime is tokio)
+tokio = { version = "1", features = ["time"] }
 
 # Desktop: SQLCipher con OpenSSL vendored. Android: SQLite bundled (SQLCipher vendored-openssl
 # no compila en cross-compilación Windows→Android por limitación de openssl-src/perl).
-# D1 se preserva en ambos via field-level XOR en crypto.rs (url/title cifrados antes del INSERT).
+# D1 se preserva en ambos via AES-256-GCM field-level en crypto.rs.
 [target.'cfg(not(target_os = "android"))'.dependencies]
 rusqlite = { version = "0.31", features = ["bundled-sqlcipher-vendored-openssl"] }
+# Google Drive REST API client — desktop relay only
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "multipart"] }
 
 [target.'cfg(target_os = "android")'.dependencies]
 rusqlite = { version = "0.31", features = ["bundled"] }

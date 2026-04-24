@@ -30,6 +30,8 @@ pub fn run() {
             commands::get_privacy_stats,
             commands::clear_all_resources,
             commands::get_mobile_resources,
+            commands::get_platform,
+            commands::open_resource_url,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

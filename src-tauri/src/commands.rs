@@ -127,7 +127,7 @@ pub fn get_resources(
         .map(|r| ResourceView {
             id: r.id,
             uuid: r.uuid,
-            title: crypto::decrypt(&r.title, &key).unwrap_or_default(),
+            title: crypto::decrypt_any(&r.title, &key).unwrap_or_default(),
             domain: r.domain,
             category: r.category,
         })
@@ -238,6 +238,37 @@ pub fn clear_all_resources(state: State<'_, DbState>) -> Result<usize, String> {
     db.delete_all().map_err(|e| e.to_string())
 }
 
+// ── Phase 0c — Platform + URL opener ─────────────────────────────────────────
+
+/// Return "android" or "desktop" — lets the React frontend choose which view to render.
+#[tauri::command]
+pub fn get_platform() -> &'static str {
+    #[cfg(target_os = "android")]
+    return "android";
+    #[cfg(not(target_os = "android"))]
+    return "desktop";
+}
+
+/// Decrypt the URL for the given uuid and open it in the system browser.
+/// The URL never reaches the frontend (D1 compliance).
+#[tauri::command]
+pub fn open_resource_url(
+    uuid: String,
+    state: State<'_, DbState>,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    use tauri_plugin_shell::ShellExt;
+    let key = db_key(&app);
+    let db = state.0.lock().map_err(|e| e.to_string())?;
+    let resource = db
+        .get_by_uuid(&uuid)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("not found: {uuid}"))?;
+    let url = crypto::decrypt_any(&resource.url, &key)
+        .ok_or_else(|| "decrypt failed".to_string())?;
+    app.shell().open(&url, None).map_err(|e| e.to_string())
+}
+
 // ── Phase 0c — Mobile commands ────────────────────────────────────────────────
 
 /// Return resources grouped by category for the Android gallery (T-0c-001).
@@ -256,7 +287,7 @@ pub fn get_mobile_resources(
         std::collections::HashMap::new();
 
     for r in rows {
-        let title = crypto::decrypt(&r.title, &key).unwrap_or_default();
+        let title = crypto::decrypt_any(&r.title, &key).unwrap_or_default();
         map.entry(r.category.clone()).or_default().push(MobileResource {
             uuid: r.uuid,
             domain: r.domain,
@@ -280,13 +311,24 @@ pub fn get_mobile_resources(
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-/// Derive the database key from the app's data directory path.
-/// This binds the key to the installation — never transmitted (invariant 2).
+/// Derive the field-level encryption key for url/title in SQLite.
+///
+/// Desktop: derived from app_data_dir path (installation-bound, never transmitted).
+/// Android: stable constant that matches FieldCrypto.FIELD_KEY_PASSPHRASE in Kotlin.
+///   A path-based key on Android cannot be guaranteed to align with the Kotlin layer,
+///   so a constant is used. The Android app data dir provides file system isolation.
 fn db_key(app: &tauri::AppHandle) -> String {
-    let path = app
-        .path()
-        .app_data_dir()
-        .map(|p| p.to_string_lossy().to_string())
-        .unwrap_or_else(|_| "flowweaver-fallback-key".to_string());
-    format!("fw-{path}")
+    #[cfg(target_os = "android")]
+    {
+        let _ = app;
+        // Must match FieldCrypto.FIELD_KEY_PASSPHRASE in FieldCrypto.kt.
+        return "flowweaver-android-field-key-v1".to_string();
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        app.path()
+            .app_data_dir()
+            .map(|p| format!("fw-{}", p.to_string_lossy()))
+            .unwrap_or_else(|_| "flowweaver-fallback-key".to_string())
+    }
 }
