@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { MobileResource, CategoryGroup } from "../types";
+import { MobilePrivacyDashboard } from "./MobilePrivacyDashboard";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -66,6 +67,7 @@ export function MobileGallery() {
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<GalleryView>("main");
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
+  const [showPrivacy, setShowPrivacy] = useState(false);
 
   useEffect(() => {
     loadResources();
@@ -94,6 +96,11 @@ export function MobileGallery() {
   function goBack() {
     setView("main");
     setActiveCategory(null);
+  }
+
+  function handleDataCleared() {
+    setGroups([]);
+    loadResources();
   }
 
   // ── Derived data ────────────────────────────────────────────────────────────
@@ -130,14 +137,24 @@ export function MobileGallery() {
           >
             ← {activeCategory} ({detailResources.length})
           </button>
-          <button
-            className="mobile-gallery__refresh-btn"
-            onClick={loadResources}
-            type="button"
-            aria-label="Actualizar"
-          >
-            ⟳
-          </button>
+          <div className="mobile-gallery__header-actions">
+            <button
+              className="mobile-gallery__privacy-btn"
+              onClick={() => setShowPrivacy(true)}
+              type="button"
+              aria-label="Privacidad"
+            >
+              🔒
+            </button>
+            <button
+              className="mobile-gallery__refresh-btn"
+              onClick={loadResources}
+              type="button"
+              aria-label="Actualizar"
+            >
+              ⟳
+            </button>
+          </div>
         </header>
 
         <div className="mobile-gallery__content">
@@ -151,6 +168,13 @@ export function MobileGallery() {
             ))
           )}
         </div>
+
+        {showPrivacy && (
+          <MobilePrivacyDashboard
+            onClose={() => setShowPrivacy(false)}
+            onDataCleared={handleDataCleared}
+          />
+        )}
       </div>
     );
   }
@@ -161,14 +185,24 @@ export function MobileGallery() {
     <div className="mobile-gallery">
       <header className="mobile-gallery__header">
         <span className="mobile-gallery__header-title">FlowWeaver</span>
-        <button
-          className="mobile-gallery__refresh-btn"
-          onClick={loadResources}
-          type="button"
-          aria-label="Actualizar"
-        >
-          ⟳
-        </button>
+        <div className="mobile-gallery__header-actions">
+          <button
+            className="mobile-gallery__privacy-btn"
+            onClick={() => setShowPrivacy(true)}
+            type="button"
+            aria-label="Privacidad"
+          >
+            🔒
+          </button>
+          <button
+            className="mobile-gallery__refresh-btn"
+            onClick={loadResources}
+            type="button"
+            aria-label="Actualizar"
+          >
+            ⟳
+          </button>
+        </div>
       </header>
 
       {loading && (
@@ -206,6 +240,13 @@ export function MobileGallery() {
             </button>
           ))}
         </div>
+      )}
+
+      {showPrivacy && (
+        <MobilePrivacyDashboard
+          onClose={() => setShowPrivacy(false)}
+          onDataCleared={handleDataCleared}
+        />
       )}
     </div>
   );
