@@ -60,7 +60,9 @@ impl Db {
     /// key is the passphrase used for AES encryption; it never leaves this process.
     pub fn open(path: &Path, key: &str) -> Result<Self> {
         let conn = Connection::open(path)?;
+        #[cfg(not(target_os = "android"))]
         conn.execute_batch(&format!("PRAGMA key = '{key}';"))?;
+        let _ = key; // unused on Android — field-level XOR in crypto.rs covers D1
         conn.execute_batch("PRAGMA journal_mode = WAL;")?;
         Ok(Self { conn })
     }
