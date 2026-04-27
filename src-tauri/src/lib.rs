@@ -2,16 +2,21 @@ mod classifier;
 mod commands;
 mod crypto;
 mod episode_detector;
+mod fs_watcher;
 mod grouper;
 mod importer;
+mod pattern_blocks;
+mod pattern_detector;
 mod raw_event;
 mod session_builder;
+mod state_machine;
 mod storage;
+mod trust_scorer;
 
 #[cfg(not(target_os = "android"))]
 mod drive_relay;
 
-use commands::DbState;
+use commands::{DbState, FsWatcherState};
 use storage::Db;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -21,6 +26,65 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .manage(DbState(std::sync::Mutex::new(db)))
+        .manage(FsWatcherState::default())
+        .on_window_event(|window, event| {
+            // FS Watcher foreground-only enforcement (D9 — TS-2-000 §2).
+            // Única vía de inicio del watcher: el hook reacciona al foco y
+            // el handle queda en `FsWatcherState`. `Drop` automático detiene
+            // el backend `notify` cuando se desreferencia (RAII).
+            #[cfg(not(target_os = "android"))]
+            if let tauri::WindowEvent::Focused(focused) = event {
+                use tauri::Manager;
+                let fs_state = window.state::<FsWatcherState>();
+                let mut guard = match fs_state.handle.lock() {
+                    Ok(g) => g,
+                    Err(_) => return,
+                };
+                if *focused {
+                    let db_state = window.state::<DbState>();
+                    let db = match db_state.0.lock() {
+                        Ok(d) => d,
+                        Err(_) => return,
+                    };
+                    let conn = db.conn();
+                    let now_unix = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_secs() as i64)
+                        .unwrap_or(0);
+                    if fs_watcher::ensure_schema(conn, now_unix).is_err() {
+                        return;
+                    }
+                    let app_handle = window.app_handle();
+                    let app_data_dir = match app_handle.path().app_data_dir() {
+                        Ok(p) => p,
+                        Err(_) => return,
+                    };
+                    let passphrase = format!("fw-{}", app_data_dir.to_string_lossy());
+                    let key = fs_watcher::derive_filename_key(&passphrase);
+                    match fs_watcher::start_watching(
+                        conn,
+                        fs_state.event_buffer.clone(),
+                        &key,
+                    ) {
+                        Ok(h) => *guard = Some(h),
+                        Err(fs_watcher::FsWatcherError::NoActiveDirectories) => {
+                            // No hay directorios activos — Suspended hasta que el
+                            // usuario active uno desde el dashboard.
+                        }
+                        Err(e) => eprintln!("[fs_watcher] start_watching error: {e}"),
+                    }
+                } else {
+                    *guard = None; // RAII drop → notify se detiene
+                    if let Ok(mut buffer) = fs_state.event_buffer.lock() {
+                        buffer.clear(); // purga buffer (D9)
+                    }
+                }
+            }
+            #[cfg(target_os = "android")]
+            {
+                let _ = (window, event); // Android: stub, sin watcher
+            }
+        })
         .setup(|app| {
             // Desktop relay background loop — not needed on Android (WorkManager handles it).
             #[cfg(not(target_os = "android"))]
@@ -69,6 +133,19 @@ pub fn run() {
             commands::add_capture,
             commands::get_privacy_stats,
             commands::clear_all_resources,
+            commands::fs_watcher_get_status,
+            commands::fs_watcher_list_directories,
+            commands::fs_watcher_activate_directory,
+            commands::fs_watcher_deactivate_directory,
+            commands::fs_watcher_get_session_events,
+            commands::fs_watcher_clear_directory_history,
+            commands::fs_watcher_get_24h_event_count,
+            commands::get_trust_state,
+            commands::reset_trust_state,
+            commands::enable_autonomous_mode,
+            commands::get_detected_patterns,
+            commands::block_pattern,
+            commands::unblock_pattern,
             commands::get_mobile_resources,
             commands::get_platform,
             commands::open_resource_url,

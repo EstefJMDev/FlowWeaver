@@ -34,6 +34,11 @@ tokio = { version = "1", features = ["time"] }
 rusqlite = { version = "0.31", features = ["bundled-sqlcipher-vendored-openssl"] }
 # Google Drive REST API client — desktop relay only
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "multipart"] }
+# T-2-000 FS Watcher (TS-2-000): cross-platform file events
+# (ReadDirectoryChangesW on Windows, FSEvents on macOS, inotify on Linux).
+# Excluded from Android target — Scoped Storage incompatible with TS-2-000 (D19 stub).
+notify = "6"
+dirs = "5"
 
 [target.'cfg(target_os = "android")'.dependencies]
 rusqlite = { version = "0.31", features = ["bundled"] }

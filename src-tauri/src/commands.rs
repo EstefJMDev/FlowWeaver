@@ -6,13 +6,39 @@ use crate::{
     classifier,
     crypto,
     episode_detector,
+    fs_watcher::{
+        self, CandidateDirectory, FsWatcherDirectory, FsWatcherEvent, FsWatcherHandle,
+        FsWatcherRuntimeState, FsWatcherStatus,
+    },
     grouper,
     importer,
+    pattern_blocks,
+    pattern_detector::{self, DetectedPattern, PatternConfig},
     session_builder,
+    state_machine::{self, StateMachineConfig, TrustStateView, UserAction},
     storage::{Db, NewResource, PrivacyStats, Resource},
+    trust_scorer::{self, TrustConfig},
 };
 
 pub struct DbState(pub std::sync::Mutex<Db>);
+
+/// Estado runtime del FS Watcher (T-2-000). El `handle` mantiene vivo el
+/// watcher de `notify` mientras la app está en primer plano (D9). El
+/// `event_buffer` acumula eventos de la sesión actual y se purga al perder
+/// el foco. Registrado vía `.manage(FsWatcherState::default())` en `lib.rs`.
+pub struct FsWatcherState {
+    pub handle: std::sync::Mutex<Option<FsWatcherHandle>>,
+    pub event_buffer: std::sync::Arc<std::sync::Mutex<Vec<FsWatcherEvent>>>,
+}
+
+impl Default for FsWatcherState {
+    fn default() -> Self {
+        Self {
+            handle: std::sync::Mutex::new(None),
+            event_buffer: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
+        }
+    }
+}
 
 // ── Types exposed to the frontend ────────────────────────────────────────────
 
@@ -254,6 +280,163 @@ pub fn clear_all_resources(state: State<'_, DbState>) -> Result<usize, String> {
     db.delete_all().map_err(|e| e.to_string())
 }
 
+// ── Phase 2 — Trust State (T-2-003) ──────────────────────────────────────────
+
+/// Evaluate (and persist) the current Trust State.
+/// Composes the canonical chain (D4 — TS-2-003 §"Cadena de invocación canónica"):
+/// `pattern_detector → trust_scorer → state_machine`. Authority over transitions
+/// stays exclusively in `state_machine`.
+#[tauri::command]
+pub fn get_trust_state(state: State<'_, DbState>) -> Result<TrustStateView, String> {
+    apply_trust_action(state, None)
+}
+
+/// Reset the Trust State to `Observing` from any state.
+#[tauri::command]
+pub fn reset_trust_state(state: State<'_, DbState>) -> Result<TrustStateView, String> {
+    apply_trust_action(state, Some(UserAction::Reset))
+}
+
+/// Activate `Autonomous` mode. Requires `confirmed: true` and `current == Trusted`.
+/// Frontend (T-2-004) must show explicit confirmation before invoking with `confirmed: true`.
+#[tauri::command]
+pub fn enable_autonomous_mode(
+    state: State<'_, DbState>,
+    confirmed: bool,
+) -> Result<TrustStateView, String> {
+    apply_trust_action(state, Some(UserAction::EnableAutonomous { confirmed }))
+}
+
+fn apply_trust_action(
+    state: State<'_, DbState>,
+    user_action: Option<UserAction>,
+) -> Result<TrustStateView, String> {
+    let now_unix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .map_err(|e| e.to_string())?;
+    let db = state.0.lock().map_err(|e| e.to_string())?;
+    let conn = db.conn();
+
+    state_machine::ensure_schema(conn, now_unix).map_err(|e| e.to_string())?;
+    pattern_blocks::ensure_schema(conn).map_err(|e| e.to_string())?;
+    let (current, last_ts) = state_machine::load_state(conn).map_err(|e| e.to_string())?;
+    // pattern_detector::detect_patterns(conn, &PatternConfig) — firma sin
+    // now_unix (TS-2-001 cerrado así); coexiste con score_patterns que sí lo
+    // recibe explícitamente.
+    let patterns = pattern_detector::detect_patterns(conn, &PatternConfig::default())
+        .map_err(|e| e.to_string())?;
+    let scores = trust_scorer::score_patterns(&patterns, &TrustConfig::default(), now_unix)
+        .map_err(|e| e.to_string())?;
+    // Precomputa user_blocked_pre consultando pattern_blocks. Externalizar la
+    // consulta preserva D8 estricto en evaluate_transition (TS-2-004
+    // §"Edición Mecánica").
+    let blocked_ids = pattern_blocks::list_blocked(conn).map_err(|e| e.to_string())?;
+    let user_blocked_pre = scores.iter().any(|s| blocked_ids.contains(&s.pattern_id));
+    let new_state = state_machine::evaluate_transition(
+        &scores,
+        current,
+        last_ts,
+        user_action,
+        now_unix,
+        &StateMachineConfig::default(),
+        user_blocked_pre,
+    )
+    .map_err(|e| e.to_string())?;
+    state_machine::save_state(
+        conn,
+        new_state.current_state,
+        new_state.last_transition_at,
+        now_unix,
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(TrustStateView::from(new_state))
+}
+
+// ── Phase 2 — Privacy Dashboard (T-2-004) ────────────────────────────────────
+
+/// Wire shape para `PatternSummary` consumido por el frontend (TS-2-004
+/// §"Contrato de Tipos TypeScript"). Proyección serializable estricta de
+/// `DetectedPattern` que omite `first_seen` y añade `is_blocked`.
+#[derive(Debug, Serialize)]
+pub struct PatternSummary {
+    pub pattern_id: String,
+    pub label: String,
+    pub category_signature: Vec<pattern_detector::CategoryWeight>,
+    pub domain_signature: Vec<pattern_detector::DomainWeight>,
+    pub temporal_window: pattern_detector::TemporalWindow,
+    pub frequency: usize,
+    pub last_seen: i64,
+    pub is_blocked: bool,
+}
+
+impl PatternSummary {
+    fn from_detected(p: DetectedPattern, is_blocked: bool) -> Self {
+        PatternSummary {
+            pattern_id: p.pattern_id,
+            label: p.label,
+            category_signature: p.category_signature,
+            domain_signature: p.domain_signature,
+            temporal_window: p.temporal_window,
+            frequency: p.frequency,
+            last_seen: p.last_seen,
+            is_blocked,
+        }
+    }
+}
+
+/// Devuelve los patrones detectados (proyectados a `PatternSummary`) ordenados
+/// por `last_seen` desc, desempate por `pattern_id` asc (D8). El flag
+/// `is_blocked` se materializa consultando la tabla `pattern_blocks`.
+///
+/// D4: este comando NO invoca `evaluate_transition` ni muta `state_machine`.
+#[tauri::command]
+pub fn get_detected_patterns(state: State<'_, DbState>) -> Result<Vec<PatternSummary>, String> {
+    let db = state.0.lock().map_err(|e| e.to_string())?;
+    let conn = db.conn();
+    pattern_blocks::ensure_schema(conn).map_err(|e| e.to_string())?;
+    let patterns = pattern_detector::detect_patterns(conn, &PatternConfig::default())
+        .map_err(|e| e.to_string())?;
+    let blocked = pattern_blocks::list_blocked(conn).map_err(|e| e.to_string())?;
+    let mut summaries: Vec<PatternSummary> = patterns
+        .into_iter()
+        .map(|p| {
+            let is_blocked = blocked.contains(&p.pattern_id);
+            PatternSummary::from_detected(p, is_blocked)
+        })
+        .collect();
+    summaries.sort_by(|a, b| {
+        b.last_seen
+            .cmp(&a.last_seen)
+            .then_with(|| a.pattern_id.cmp(&b.pattern_id))
+    });
+    Ok(summaries)
+}
+
+/// Marca un patrón como bloqueado por el usuario. Idempotente.
+#[tauri::command]
+pub fn block_pattern(state: State<'_, DbState>, pattern_id: String) -> Result<(), String> {
+    let now_unix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .map_err(|e| e.to_string())?;
+    let db = state.0.lock().map_err(|e| e.to_string())?;
+    let conn = db.conn();
+    pattern_blocks::ensure_schema(conn).map_err(|e| e.to_string())?;
+    pattern_blocks::block(conn, &pattern_id, now_unix).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Desbloquea un patrón previamente bloqueado. Idempotente.
+#[tauri::command]
+pub fn unblock_pattern(state: State<'_, DbState>, pattern_id: String) -> Result<(), String> {
+    let db = state.0.lock().map_err(|e| e.to_string())?;
+    let conn = db.conn();
+    pattern_blocks::ensure_schema(conn).map_err(|e| e.to_string())?;
+    pattern_blocks::unblock(conn, &pattern_id).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 // ── Phase 0c — Platform + URL opener ─────────────────────────────────────────
 
 /// Return "android" or "desktop" — lets the React frontend choose which view to render.
@@ -414,4 +597,272 @@ fn relay_device_id(app: &tauri::AppHandle) -> String {
         .app_data_dir()
         .map(|p| crate::drive_relay::desktop_device_id(&p))
         .unwrap_or_else(|_| "desktop-fallback".to_string())
+}
+
+// ── Phase 2 — FS Watcher (T-2-000) ───────────────────────────────────────────
+//
+// Los siete comandos materializan los cinco elementos visuales declarados en
+// TS-2-000 §3 "Visibilidad en el Privacy Dashboard". HO-FW-PD posterior los
+// compone en `FsWatcherSection.tsx` (out-of-scope de T-2-004 — TS-2-004
+// §"Decisiones del TA §4").
+//
+// D1 absoluto: ningún comando devuelve `url`, `title`, ni la ruta completa
+//   del archivo. Solo: directorio padre (en claro), extensión (en claro),
+//   nombre cifrado, timestamp.
+// D4 transitivo: ningún comando invoca `evaluate_transition`,
+//   `score_patterns`, ni `detect_patterns`.
+// D9: el watcher se inicia exclusivamente desde el hook
+//   `WindowEvent::Focused(true)` en `lib.rs`. Los comandos `activate_directory`
+//   pueden lanzarlo si la app YA está en foreground (handle.is_some()) — esto
+//   es la misma vía: el hook lo dejó armado y aquí solo se reinicia con la
+//   nueva configuración.
+
+#[tauri::command]
+pub fn fs_watcher_get_status(
+    state: State<'_, DbState>,
+    fs_state: State<'_, FsWatcherState>,
+) -> Result<FsWatcherStatus, String> {
+    #[cfg(target_os = "android")]
+    {
+        let _ = (state, fs_state);
+        return Err(fs_watcher::FsWatcherError::UnsupportedPlatform.to_string());
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let now_unix = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .map_err(|e| e.to_string())?;
+        let db = state.0.lock().map_err(|e| e.to_string())?;
+        let conn = db.conn();
+        fs_watcher::ensure_schema(conn, now_unix).map_err(|e| e.to_string())?;
+        let directories = fs_watcher::list_directories(conn).map_err(|e| e.to_string())?;
+
+        let handle_active = fs_state
+            .handle
+            .lock()
+            .map(|g| g.is_some())
+            .unwrap_or(false);
+        let runtime_state = if handle_active {
+            FsWatcherRuntimeState::Active
+        } else {
+            FsWatcherRuntimeState::Suspended
+        };
+
+        let buffer = fs_state.event_buffer.lock().map_err(|e| e.to_string())?;
+        let events_in_current_session = buffer.len();
+        let cutoff = now_unix.saturating_sub(86_400);
+        let events_last_24h = buffer.iter().filter(|e| e.detected_at >= cutoff).count();
+
+        Ok(FsWatcherStatus {
+            runtime_state,
+            directories,
+            events_in_current_session,
+            events_last_24h,
+        })
+    }
+}
+
+#[tauri::command]
+pub fn fs_watcher_list_directories(
+    state: State<'_, DbState>,
+) -> Result<Vec<FsWatcherDirectory>, String> {
+    #[cfg(target_os = "android")]
+    {
+        let _ = state;
+        return Err(fs_watcher::FsWatcherError::UnsupportedPlatform.to_string());
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let now_unix = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .map_err(|e| e.to_string())?;
+        let db = state.0.lock().map_err(|e| e.to_string())?;
+        let conn = db.conn();
+        fs_watcher::ensure_schema(conn, now_unix).map_err(|e| e.to_string())?;
+        fs_watcher::list_directories(conn).map_err(|e| e.to_string())
+    }
+}
+
+#[tauri::command]
+pub fn fs_watcher_activate_directory(
+    state: State<'_, DbState>,
+    fs_state: State<'_, FsWatcherState>,
+    app: tauri::AppHandle,
+    directory: CandidateDirectory,
+    confirmed: bool,
+) -> Result<(), String> {
+    #[cfg(target_os = "android")]
+    {
+        let _ = (state, fs_state, app, directory, confirmed);
+        return Err(fs_watcher::FsWatcherError::UnsupportedPlatform.to_string());
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        // TS-2-000 §3 "Confirmación explícita": activación requiere consent.
+        if !confirmed {
+            return Err("confirmation required".to_string());
+        }
+        let now_unix = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .map_err(|e| e.to_string())?;
+        let db = state.0.lock().map_err(|e| e.to_string())?;
+        let conn = db.conn();
+        fs_watcher::ensure_schema(conn, now_unix).map_err(|e| e.to_string())?;
+        fs_watcher::activate(conn, directory, now_unix).map_err(|e| e.to_string())?;
+
+        // Si ya hay un handle vivo (app en foreground), reiniciamos el watcher
+        // para incluir el nuevo directorio. Si no hay handle (app suspendida),
+        // se lanzará al próximo Focused(true) — D9.
+        let mut handle_guard = fs_state.handle.lock().map_err(|e| e.to_string())?;
+        if handle_guard.is_some() {
+            *handle_guard = None; // RAII drop del watcher anterior
+            let key = derive_fs_key(&app);
+            match fs_watcher::start_watching(conn, fs_state.event_buffer.clone(), &key) {
+                Ok(h) => *handle_guard = Some(h),
+                Err(fs_watcher::FsWatcherError::NoActiveDirectories) => { /* nada que observar */ }
+                Err(e) => return Err(e.to_string()),
+            }
+        }
+        Ok(())
+    }
+}
+
+#[tauri::command]
+pub fn fs_watcher_deactivate_directory(
+    state: State<'_, DbState>,
+    fs_state: State<'_, FsWatcherState>,
+    app: tauri::AppHandle,
+    directory: CandidateDirectory,
+) -> Result<(), String> {
+    #[cfg(target_os = "android")]
+    {
+        let _ = (state, fs_state, app, directory);
+        return Err(fs_watcher::FsWatcherError::UnsupportedPlatform.to_string());
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let now_unix = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .map_err(|e| e.to_string())?;
+        let db = state.0.lock().map_err(|e| e.to_string())?;
+        let conn = db.conn();
+        fs_watcher::ensure_schema(conn, now_unix).map_err(|e| e.to_string())?;
+        fs_watcher::deactivate(conn, directory, now_unix).map_err(|e| e.to_string())?;
+
+        // Reinicio del watcher: si quedan directorios activos, observa el
+        // resto. Si fue el último, drop del handle (sin tocar buffer hasta
+        // perder el foco — TS-2-000 §3 "Desactivación inmediata").
+        let mut handle_guard = fs_state.handle.lock().map_err(|e| e.to_string())?;
+        if handle_guard.is_some() {
+            *handle_guard = None;
+            let key = derive_fs_key(&app);
+            match fs_watcher::start_watching(conn, fs_state.event_buffer.clone(), &key) {
+                Ok(h) => *handle_guard = Some(h),
+                Err(fs_watcher::FsWatcherError::NoActiveDirectories) => { /* OK: era el último */ }
+                Err(e) => return Err(e.to_string()),
+            }
+        }
+        Ok(())
+    }
+}
+
+#[tauri::command]
+pub fn fs_watcher_get_session_events(
+    fs_state: State<'_, FsWatcherState>,
+) -> Result<Vec<FsWatcherEvent>, String> {
+    #[cfg(target_os = "android")]
+    {
+        let _ = fs_state;
+        return Err(fs_watcher::FsWatcherError::UnsupportedPlatform.to_string());
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let buffer = fs_state.event_buffer.lock().map_err(|e| e.to_string())?;
+        Ok(buffer.clone())
+    }
+}
+
+#[tauri::command]
+pub fn fs_watcher_clear_directory_history(
+    state: State<'_, DbState>,
+    fs_state: State<'_, FsWatcherState>,
+    directory: CandidateDirectory,
+) -> Result<(), String> {
+    #[cfg(target_os = "android")]
+    {
+        let _ = (state, fs_state, directory);
+        return Err(fs_watcher::FsWatcherError::UnsupportedPlatform.to_string());
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = state; // los eventos no persisten — solo buffer en memoria
+        let mut buffer = fs_state.event_buffer.lock().map_err(|e| e.to_string())?;
+        buffer.retain(|e| e.directory != directory);
+        Ok(())
+    }
+}
+
+#[tauri::command]
+pub fn fs_watcher_get_24h_event_count(
+    fs_state: State<'_, FsWatcherState>,
+) -> Result<usize, String> {
+    #[cfg(target_os = "android")]
+    {
+        let _ = fs_state;
+        return Err(fs_watcher::FsWatcherError::UnsupportedPlatform.to_string());
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let now_unix = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .map_err(|e| e.to_string())?;
+        let cutoff = now_unix.saturating_sub(86_400);
+        let buffer = fs_state.event_buffer.lock().map_err(|e| e.to_string())?;
+        Ok(buffer.iter().filter(|e| e.detected_at >= cutoff).count())
+    }
+}
+
+/// Deriva la clave de cifrado de nombres de archivo (32 bytes vía SHA-256
+/// de la passphrase de instalación). Coherente con `db_key` pero como
+/// `[u8; 32]` para `start_watching`.
+#[cfg(not(target_os = "android"))]
+fn derive_fs_key(app: &tauri::AppHandle) -> [u8; 32] {
+    fs_watcher::derive_filename_key(&db_key(app))
+}
+
+#[cfg(test)]
+mod tests {
+    /// D1 verificación estructural — TS-2-004 §"Verificación Doble (i)".
+    /// Garantiza que ningún subcomponente del Privacy Dashboard accede a campos
+    /// `url`/`title`. La distinción es entre menciones textuales (permitidas en
+    /// `PrivacyDashboardNeverSeen.tsx` para explicar al usuario qué NO se ve)
+    /// y accesos a campos (prohibidos por D1).
+    #[test]
+    fn test_no_url_or_title_in_dashboard_components() {
+        const FILES: &[&str] = &[
+            include_str!("../../src/components/PrivacyDashboard.tsx"),
+            include_str!("../../src/components/PatternsSection.tsx"),
+            include_str!("../../src/components/TrustStateSection.tsx"),
+            include_str!("../../src/components/PrivacyDashboardNeverSeen.tsx"),
+        ];
+        let forbidden = [
+            "resource.url", "resource.title",
+            ".bookmark_url", ".page_title",
+            "p.url", "p.title",
+            "view.url", "view.title",
+        ];
+        for src in FILES {
+            for token in forbidden {
+                assert!(
+                    !src.contains(token),
+                    "D1 violation: token '{token}' present in dashboard component"
+                );
+            }
+        }
+    }
 }

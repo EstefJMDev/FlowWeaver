@@ -284,6 +284,12 @@ impl Db {
     pub fn delete_all(&self) -> Result<usize> {
         self.conn.execute("DELETE FROM resources", [])
     }
+
+    /// Read-only access to the underlying connection. Used by modules that
+    /// need to issue their own SELECTs (e.g. pattern_detector).
+    pub(crate) fn conn(&self) -> &Connection {
+        &self.conn
+    }
 }
 
 #[cfg(test)]

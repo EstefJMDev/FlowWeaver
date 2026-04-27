@@ -6,6 +6,9 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { PrivacyStats } from "../types";
+import { PatternsSection } from "./PatternsSection";
+import { TrustStateSection } from "./TrustStateSection";
+import { PrivacyDashboardNeverSeen } from "./PrivacyDashboardNeverSeen";
 
 interface Props {
   onDataCleared: () => void;
@@ -63,45 +66,50 @@ export function PrivacyDashboard({ onDataCleared }: Props) {
 
           {stats ? (
             <div className="privacy-dashboard__body">
-              <p className="privacy-dashboard__count">
-                <strong>{stats.resource_count}</strong> recursos cifrados
-              </p>
+              <section aria-labelledby="pd-recursos">
+                <h4 id="pd-recursos">Recursos almacenados</h4>
+                <p className="privacy-dashboard__count">
+                  <strong>{stats.resource_count}</strong> recursos cifrados
+                </p>
 
-              <div className="privacy-dashboard__section">
-                <h4 className="privacy-dashboard__section-title">Por categoría</h4>
-                <ul className="privacy-dashboard__list">
-                  {stats.categories.map((c) => (
-                    <li key={c.category} className="privacy-dashboard__item">
-                      <span className="privacy-dashboard__item-label">{c.category}</span>
-                      <span className="privacy-dashboard__item-count">{c.count}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
+                <div className="privacy-dashboard__section">
+                  <h4 className="privacy-dashboard__section-title">Por categoría</h4>
+                  <ul className="privacy-dashboard__list">
+                    {stats.categories.map((c) => (
+                      <li key={c.category} className="privacy-dashboard__item">
+                        <span className="privacy-dashboard__item-label">{c.category}</span>
+                        <span className="privacy-dashboard__item-count">{c.count}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
 
-              <div className="privacy-dashboard__section">
-                <h4 className="privacy-dashboard__section-title">Dominios (en claro)</h4>
-                <ul className="privacy-dashboard__list">
-                  {stats.domains.slice(0, 10).map((d) => (
-                    <li key={d.domain} className="privacy-dashboard__item">
-                      <span className="privacy-dashboard__item-label">{d.domain}</span>
-                      <span className="privacy-dashboard__item-count">{d.count}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
+                <div className="privacy-dashboard__section">
+                  <h4 className="privacy-dashboard__section-title">Dominios (en claro)</h4>
+                  <ul className="privacy-dashboard__list">
+                    {stats.domains.slice(0, 10).map((d) => (
+                      <li key={d.domain} className="privacy-dashboard__item">
+                        <span className="privacy-dashboard__item-label">{d.domain}</span>
+                        <span className="privacy-dashboard__item-count">{d.count}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
 
-              <p className="privacy-dashboard__notice">
-                URLs y títulos cifrados localmente. Nunca transmitidos.
-              </p>
+                <button
+                  className="privacy-dashboard__clear"
+                  onClick={handleClear}
+                  disabled={clearing}
+                >
+                  {clearing ? "Eliminando…" : "Eliminar todos los datos"}
+                </button>
+              </section>
 
-              <button
-                className="privacy-dashboard__clear"
-                onClick={handleClear}
-                disabled={clearing}
-              >
-                {clearing ? "Eliminando…" : "Eliminar todos los datos"}
-              </button>
+              <PatternsSection />
+
+              <TrustStateSection />
+
+              <PrivacyDashboardNeverSeen />
             </div>
           ) : (
             <p className="privacy-dashboard__loading">Cargando estadísticas…</p>
