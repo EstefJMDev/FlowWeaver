@@ -28,55 +28,48 @@ pub fn run() {
         .manage(DbState(std::sync::Mutex::new(db)))
         .manage(FsWatcherState::default())
         .on_window_event(|window, event| {
-            // FS Watcher foreground-only enforcement (D9 — TS-2-000 §2).
-            // Única vía de inicio del watcher: el hook reacciona al foco y
-            // el handle queda en `FsWatcherState`. `Drop` automático detiene
-            // el backend `notify` cuando se desreferencia (RAII).
+            // Arranca el watcher la primera vez que la ventana gana foco.
+            // No se detiene al perder el foco: corre en segundo plano mientras
+            // haya directorios activos (D9 revisado — background-persistent).
             #[cfg(not(target_os = "android"))]
             if let tauri::WindowEvent::Focused(focused) = event {
-                use tauri::Manager;
-                let fs_state = window.state::<FsWatcherState>();
-                let mut guard = match fs_state.handle.lock() {
-                    Ok(g) => g,
-                    Err(_) => return,
-                };
                 if *focused {
-                    let db_state = window.state::<DbState>();
-                    let db = match db_state.0.lock() {
-                        Ok(d) => d,
+                    use tauri::Manager;
+                    let fs_state = window.state::<FsWatcherState>();
+                    let mut guard = match fs_state.handle.lock() {
+                        Ok(g) => g,
                         Err(_) => return,
                     };
-                    let conn = db.conn();
-                    let now_unix = std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .map(|d| d.as_secs() as i64)
-                        .unwrap_or(0);
-                    if fs_watcher::ensure_schema(conn, now_unix).is_err() {
-                        return;
-                    }
-                    let app_handle = window.app_handle();
-                    let app_data_dir = match app_handle.path().app_data_dir() {
-                        Ok(p) => p,
-                        Err(_) => return,
-                    };
-                    let passphrase = format!("fw-{}", app_data_dir.to_string_lossy());
-                    let key = fs_watcher::derive_filename_key(&passphrase);
-                    match fs_watcher::start_watching(
-                        conn,
-                        fs_state.event_buffer.clone(),
-                        &key,
-                    ) {
-                        Ok(h) => *guard = Some(h),
-                        Err(fs_watcher::FsWatcherError::NoActiveDirectories) => {
-                            // No hay directorios activos — Suspended hasta que el
-                            // usuario active uno desde el dashboard.
+                    if guard.is_none() {
+                        let db_state = window.state::<DbState>();
+                        let db = match db_state.0.lock() {
+                            Ok(d) => d,
+                            Err(_) => return,
+                        };
+                        let conn = db.conn();
+                        let now_unix = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map(|d| d.as_secs() as i64)
+                            .unwrap_or(0);
+                        if fs_watcher::ensure_schema(conn, now_unix).is_err() {
+                            return;
                         }
-                        Err(e) => eprintln!("[fs_watcher] start_watching error: {e}"),
-                    }
-                } else {
-                    *guard = None; // RAII drop → notify se detiene
-                    if let Ok(mut buffer) = fs_state.event_buffer.lock() {
-                        buffer.clear(); // purga buffer (D9)
+                        let app_handle = window.app_handle();
+                        let app_data_dir = match app_handle.path().app_data_dir() {
+                            Ok(p) => p,
+                            Err(_) => return,
+                        };
+                        let passphrase = format!("fw-{}", app_data_dir.to_string_lossy());
+                        let key = fs_watcher::derive_filename_key(&passphrase);
+                        match fs_watcher::start_watching(
+                            conn,
+                            fs_state.event_buffer.clone(),
+                            &key,
+                        ) {
+                            Ok(h) => *guard = Some(h),
+                            Err(fs_watcher::FsWatcherError::NoActiveDirectories) => {}
+                            Err(e) => eprintln!("[fs_watcher] start_watching error: {e}"),
+                        }
                     }
                 }
             }

@@ -372,8 +372,9 @@ pub fn start_watching(
     let mut watcher = recommended_watcher(move |res: notify::Result<notify::Event>| {
         let event = match res {
             Ok(e) => e,
-            Err(_) => return,
+            Err(e) => { eprintln!("[fs_watcher] notify error: {e}"); return; }
         };
+        eprintln!("[fs_watcher] event: kind={:?} paths={:?}", event.kind, event.paths);
         // Solo nos interesan eventos de creación o renombre destino —
         // notify entrega un Event con paths. NO leemos contenido (D1).
         let is_relevant = matches!(
@@ -381,19 +382,33 @@ pub fn start_watching(
             EventKind::Create(_) | EventKind::Modify(notify::event::ModifyKind::Name(_))
         );
         if !is_relevant {
+            eprintln!("[fs_watcher] skipped (kind not relevant)");
             return;
         }
         for path in &event.paths {
+            eprintln!("[fs_watcher] checking path: {:?}", path);
             if !is_directory_allowed(path) {
+                eprintln!("[fs_watcher] filtered: directory not allowed");
                 continue;
             }
             if !is_extension_allowed(path) {
+                eprintln!("[fs_watcher] filtered: extension not allowed ({:?})", path.extension());
                 continue;
             }
             let routed_dir: Option<CandidateDirectory> = mappings_for_closure
                 .iter()
-                .find(|(parent, _)| path.starts_with(parent))
+                .find(|(parent, _)| {
+                    // Windows filesystem is case-insensitive but Path::starts_with is not.
+                    #[cfg(windows)]
+                    {
+                        path.to_string_lossy().to_lowercase()
+                            .starts_with(parent.to_string_lossy().to_lowercase().as_str())
+                    }
+                    #[cfg(not(windows))]
+                    { path.starts_with(parent) }
+                })
                 .map(|(_, d)| *d);
+            eprintln!("[fs_watcher] routed_dir={:?} (mappings={:?})", routed_dir, mappings_for_closure.iter().map(|(p,_)| p).collect::<Vec<_>>());
             let directory = match routed_dir {
                 Some(d) => d,
                 None => continue,
@@ -428,6 +443,7 @@ pub fn start_watching(
     })?;
 
     for (path, _) in &mappings {
+        eprintln!("[fs_watcher] watching path: {:?} (exists={})", path, path.exists());
         watcher.watch(path, RecursiveMode::NonRecursive)?;
     }
 

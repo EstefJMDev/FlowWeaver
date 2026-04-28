@@ -1,4 +1,4 @@
-use serde::{Deserialize, Serialize};
+﻿use serde::{Deserialize, Serialize};
 use tauri::{Manager, State};
 use uuid::Uuid;
 
@@ -23,9 +23,8 @@ use crate::{
 pub struct DbState(pub std::sync::Mutex<Db>);
 
 /// Estado runtime del FS Watcher (T-2-000). El `handle` mantiene vivo el
-/// watcher de `notify` mientras la app está en primer plano (D9). El
-/// `event_buffer` acumula eventos de la sesión actual y se purga al perder
-/// el foco. Registrado vía `.manage(FsWatcherState::default())` en `lib.rs`.
+/// watcher de `notify`. El `event_buffer` acumula eventos desde el arranque.
+/// Registrado vía `.manage(FsWatcherState::default())` en `lib.rs`.
 pub struct FsWatcherState {
     pub handle: std::sync::Mutex<Option<FsWatcherHandle>>,
     pub event_buffer: std::sync::Arc<std::sync::Mutex<Vec<FsWatcherEvent>>>,
@@ -107,6 +106,8 @@ pub fn import_resource(
 
 /// Import browser bookmarks as bootstrap data (T-0a-002).
 /// path: optional explicit file path; if omitted, auto-detects Chrome/Edge/Brave.
+/// Auto-import (path=None) is suppressed after the user explicitly clears all data,
+/// so closing and reopening the app does not silently reimport browser bookmarks.
 #[tauri::command]
 pub fn import_bookmarks(
     path: Option<String>,
@@ -115,6 +116,19 @@ pub fn import_bookmarks(
 ) -> Result<importer::ImportResult, String> {
     let key = db_key(&app);
     let db = state.0.lock().map_err(|e| e.to_string())?;
+    if path.is_none() {
+        let skip = db.get_pref("skip_auto_import")
+            .ok()
+            .flatten()
+            .map(|v| v == "1")
+            .unwrap_or(false);
+        if skip {
+            return Ok(importer::ImportResult::default());
+        }
+    } else {
+        // Explicit import by the user — lift the suppression flag.
+        let _ = db.set_pref("skip_auto_import", "0");
+    }
     let result = importer::import(path.as_deref(), &db, &key);
     #[cfg(not(target_os = "android"))]
     let _ = db.enqueue_unrelayed_resources(&relay_device_id(&app));
@@ -713,18 +727,13 @@ pub fn fs_watcher_activate_directory(
         fs_watcher::ensure_schema(conn, now_unix).map_err(|e| e.to_string())?;
         fs_watcher::activate(conn, directory, now_unix).map_err(|e| e.to_string())?;
 
-        // Si ya hay un handle vivo (app en foreground), reiniciamos el watcher
-        // para incluir el nuevo directorio. Si no hay handle (app suspendida),
-        // se lanzará al próximo Focused(true) — D9.
         let mut handle_guard = fs_state.handle.lock().map_err(|e| e.to_string())?;
-        if handle_guard.is_some() {
-            *handle_guard = None; // RAII drop del watcher anterior
-            let key = derive_fs_key(&app);
-            match fs_watcher::start_watching(conn, fs_state.event_buffer.clone(), &key) {
-                Ok(h) => *handle_guard = Some(h),
-                Err(fs_watcher::FsWatcherError::NoActiveDirectories) => { /* nada que observar */ }
-                Err(e) => return Err(e.to_string()),
-            }
+        *handle_guard = None;
+        let key = derive_fs_key(&app);
+        match fs_watcher::start_watching(conn, fs_state.event_buffer.clone(), &key) {
+            Ok(h) => *handle_guard = Some(h),
+            Err(fs_watcher::FsWatcherError::NoActiveDirectories) => {}
+            Err(e) => return Err(e.to_string()),
         }
         Ok(())
     }
@@ -753,18 +762,13 @@ pub fn fs_watcher_deactivate_directory(
         fs_watcher::ensure_schema(conn, now_unix).map_err(|e| e.to_string())?;
         fs_watcher::deactivate(conn, directory, now_unix).map_err(|e| e.to_string())?;
 
-        // Reinicio del watcher: si quedan directorios activos, observa el
-        // resto. Si fue el último, drop del handle (sin tocar buffer hasta
-        // perder el foco — TS-2-000 §3 "Desactivación inmediata").
         let mut handle_guard = fs_state.handle.lock().map_err(|e| e.to_string())?;
-        if handle_guard.is_some() {
-            *handle_guard = None;
-            let key = derive_fs_key(&app);
-            match fs_watcher::start_watching(conn, fs_state.event_buffer.clone(), &key) {
-                Ok(h) => *handle_guard = Some(h),
-                Err(fs_watcher::FsWatcherError::NoActiveDirectories) => { /* OK: era el último */ }
-                Err(e) => return Err(e.to_string()),
-            }
+        *handle_guard = None;
+        let key = derive_fs_key(&app);
+        match fs_watcher::start_watching(conn, fs_state.event_buffer.clone(), &key) {
+            Ok(h) => *handle_guard = Some(h),
+            Err(fs_watcher::FsWatcherError::NoActiveDirectories) => {}
+            Err(e) => return Err(e.to_string()),
         }
         Ok(())
     }
