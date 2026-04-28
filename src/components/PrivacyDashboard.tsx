@@ -8,6 +8,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { PrivacyStats } from "../types";
 import { PatternsSection } from "./PatternsSection";
 import { TrustStateSection } from "./TrustStateSection";
+import { FsWatcherSection } from "./FsWatcherSection";
 import { PrivacyDashboardNeverSeen } from "./PrivacyDashboardNeverSeen";
 
 interface Props {
@@ -108,6 +109,8 @@ export function PrivacyDashboard({ onDataCleared }: Props) {
               <PatternsSection />
 
               <TrustStateSection />
+
+              <FsWatcherSection />
 
               <PrivacyDashboardNeverSeen />
             </div>
