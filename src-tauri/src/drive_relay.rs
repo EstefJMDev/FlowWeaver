@@ -237,9 +237,12 @@ fn process_android_event(
         .ok_or("decrypt url failed")?;
     let title_plain =
         crypto::decrypt_aes(&event.title_encrypted, shared_key).unwrap_or_default();
+    let resource_uuid = Uuid::new_v5(
+        &Uuid::NAMESPACE_URL,
+        format!("{}{}", event.domain, url_plain).as_bytes(),
+    ).to_string();
     let resource = crate::storage::NewResource {
-        uuid: Uuid::new_v5(&Uuid::NAMESPACE_URL, format!("{}{}",event.domain, url_plain).as_bytes())
-            .to_string(),
+        uuid: resource_uuid.clone(),
         url: crypto::encrypt_aes(&url_plain, local_key),
         title: crypto::encrypt_aes(&title_plain, local_key),
         domain: event.domain.clone(),
@@ -247,6 +250,10 @@ fn process_android_event(
         captured_at: event.captured_at,
     };
     db.insert_or_ignore(&resource).map_err(|e| e.to_string())?;
+    // Persist the Android event_id so relay_events survives delete_all() and
+    // prevents reimport of the same Drive event after the user clears data.
+    db.mark_android_relay_event(&event.event_id, &resource_uuid, &event.device_id)
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -320,13 +327,11 @@ pub async fn run_relay_cycle(
         for (file_id, _) in files {
             if let Ok(content) = drive_download(&token, &file_id).await {
                 if let Ok(event) = serde_json::from_str::<RawEvent>(&content) {
-                    // Idempotence: if we already processed this event_id, just write ACK
+                    // Idempotence: relay_events tracks processed event_ids and
+                    // survives delete_all(), so cleared data cannot be reimported.
                     let already = {
                         let db = db.lock().map_err(|e| e.to_string())?;
-                        db.get_by_uuid(&Uuid::new_v5(
-                            &Uuid::NAMESPACE_URL,
-                            format!("{}{}", event.domain, event.event_id).as_bytes(),
-                        ).to_string()).ok().flatten().is_some()
+                        db.has_relay_event_id(&event.event_id).unwrap_or(false)
                     };
                     if !already {
                         let db = db.lock().map_err(|e| e.to_string())?;

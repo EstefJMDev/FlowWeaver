@@ -91,10 +91,30 @@ impl Db {
                 acked_at      INTEGER,
                 retry_count   INTEGER NOT NULL DEFAULT 0
             );
+            CREATE TABLE IF NOT EXISTS user_prefs (
+                key   TEXT PRIMARY KEY,
+                value TEXT NOT NULL DEFAULT ''
+            );
         ")?;
         let _ = self.conn.execute_batch(
             "ALTER TABLE resources ADD COLUMN captured_at INTEGER NOT NULL DEFAULT 0;"
         );
+        Ok(())
+    }
+
+    pub fn get_pref(&self, key: &str) -> Result<Option<String>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT value FROM user_prefs WHERE key = ?1",
+        )?;
+        let mut rows = stmt.query_map([key], |r| r.get(0))?;
+        Ok(rows.next().transpose()?)
+    }
+
+    pub fn set_pref(&self, key: &str, value: &str) -> Result<()> {
+        self.conn.execute(
+            "INSERT OR REPLACE INTO user_prefs (key, value) VALUES (?1, ?2)",
+            params![key, value],
+        )?;
         Ok(())
     }
 
@@ -113,6 +133,33 @@ impl Db {
             params![event_id, resource_uuid, device_id],
         )?;
         Ok(())
+    }
+
+    /// Record an Android event as imported. Survives `delete_all()` so the relay
+    /// cannot reimport the same Drive event after the user clears local data.
+    pub fn mark_android_relay_event(
+        &self,
+        event_id: &str,
+        resource_uuid: &str,
+        device_id: &str,
+    ) -> Result<()> {
+        self.conn.execute(
+            "INSERT OR IGNORE INTO relay_events (event_id, resource_uuid, device_id, platform)
+             VALUES (?1, ?2, ?3, 'android')",
+            params![event_id, resource_uuid, device_id],
+        )?;
+        Ok(())
+    }
+
+    /// Returns true if the relay_events table has a record for this event_id
+    /// (desktop upload or Android import). Used for idempotency.
+    pub fn has_relay_event_id(&self, event_id: &str) -> Result<bool> {
+        let count: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM relay_events WHERE event_id = ?1",
+            params![event_id],
+            |r| r.get(0),
+        )?;
+        Ok(count > 0)
     }
 
     /// Return events not yet uploaded (uploaded_at IS NULL) with retry_count < 5.
@@ -281,7 +328,11 @@ impl Db {
     }
 
     /// Delete all resources. Called by the Privacy Dashboard clear action.
+    /// relay_events is intentionally kept so the Drive relay cannot reimport
+    /// already-processed Android events after the user wipes local data.
+    /// Sets skip_auto_import so the next startup does not reimport browser bookmarks.
     pub fn delete_all(&self) -> Result<usize> {
+        let _ = self.set_pref("skip_auto_import", "1");
         self.conn.execute("DELETE FROM resources", [])
     }
 
