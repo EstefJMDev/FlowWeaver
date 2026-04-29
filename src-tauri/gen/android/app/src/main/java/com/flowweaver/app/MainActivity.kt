@@ -8,6 +8,7 @@ package com.flowweaver.app
 //   Pattern Detector or longitudinal analysis is started here.
 
 import android.os.Bundle
+import android.system.Os
 import androidx.activity.enableEdgeToEdge
 import androidx.work.Constraints
 import androidx.work.ExistingPeriodicWorkPolicy
@@ -18,6 +19,9 @@ import java.util.concurrent.TimeUnit
 
 class MainActivity : TauriActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
+    // Set TMPDIR before Rust starts so std::env::temp_dir() returns the app cache dir.
+    // Without this, temp_dir() returns /tmp (non-existent on Android) and setup_db() panics.
+    try { Os.setenv("TMPDIR", cacheDir.absolutePath, true) } catch (_: Exception) {}
     enableEdgeToEdge()
     super.onCreate(savedInstanceState)
 
