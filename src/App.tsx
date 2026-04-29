@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { PanelA } from "./components/PanelA";
 import { PanelB } from "./components/PanelB";
 import { PanelC } from "./components/PanelC";
@@ -27,7 +28,40 @@ function App() {
   useEffect(() => {
     if (initialized.current) return;
     initialized.current = true;
-    detectPlatformAndInit();
+
+    let unlisten: (() => void) | undefined;
+
+    (async () => {
+      await detectPlatformAndInit();
+
+      // R14 — refresh the AnticipatedWorkspace when the relay imports a new
+      // event from Android. Without this, the desktop only re-renders on app
+      // restart or manual capture, so the wow moment never fires while the
+      // user already has the app open.
+      try {
+        unlisten = await listen<string>("relay-event-imported", async () => {
+          try {
+            const [cls, eps] = await Promise.all([
+              invoke<Cluster[]>("get_clusters"),
+              invoke<Episode[]>("get_episodes"),
+            ]);
+            setClusters(cls);
+            setEpisodes(eps);
+            setPhase((cur) =>
+              cur === "empty" && cls.length > 0 ? "ready" : cur,
+            );
+          } catch {
+            // silencioso — el siguiente sync intentará de nuevo
+          }
+        });
+      } catch {
+        // listener no disponible (p.ej. Android stub) — sigue con el flujo normal
+      }
+    })();
+
+    return () => {
+      unlisten?.();
+    };
   }, []);
 
   async function detectPlatformAndInit() {

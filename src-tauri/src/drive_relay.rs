@@ -19,6 +19,7 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
+use tauri::{AppHandle, Emitter};
 use uuid::Uuid;
 
 use crate::crypto;
@@ -201,7 +202,7 @@ async fn drive_download(token: &str, file_id: &str) -> Result<String, String> {
 
 // ── Build a RawEvent from a resource in the DB ───────────────────────────────
 
-fn build_raw_event(
+pub fn build_raw_event(
     resource_uuid: &str,
     event_id: &str,
     db: &Db,
@@ -227,12 +228,15 @@ fn build_raw_event(
 
 // ── Process an incoming Android event ────────────────────────────────────────
 
-fn process_android_event(
+/// Returns the `resource_uuid` derived for the imported event (v5 over
+/// `domain || url`). Callers can use it to emit a UI refresh event so the
+/// AnticipatedWorkspace recomputes (R14).
+pub fn process_android_event(
     event: &RawEvent,
     db: &Db,
     local_key: &str,
     shared_key: &str,
-) -> Result<(), String> {
+) -> Result<String, String> {
     let url_plain = crypto::decrypt_aes(&event.url_encrypted, shared_key)
         .ok_or("decrypt url failed")?;
     let title_plain =
@@ -254,7 +258,7 @@ fn process_android_event(
     // prevents reimport of the same Drive event after the user clears data.
     db.mark_android_relay_event(&event.event_id, &resource_uuid, &event.device_id)
         .map_err(|e| e.to_string())?;
-    Ok(())
+    Ok(resource_uuid)
 }
 
 // ── Main relay cycle ─────────────────────────────────────────────────────────
@@ -263,6 +267,7 @@ pub async fn run_relay_cycle(
     config_path: &Path,
     db: &Mutex<Db>,
     local_key: &str,
+    app_handle: Option<&AppHandle>,
 ) -> Result<(), String> {
     let mut config =
         DriveConfig::load_encrypted(config_path, local_key).ok_or("Drive not configured")?;
@@ -334,8 +339,16 @@ pub async fn run_relay_cycle(
                         db.has_relay_event_id(&event.event_id).unwrap_or(false)
                     };
                     if !already {
-                        let db = db.lock().map_err(|e| e.to_string())?;
-                        let _ = process_android_event(&event, &db, local_key, &config.shared_key_hex);
+                        let imported_uuid = {
+                            let db = db.lock().map_err(|e| e.to_string())?;
+                            process_android_event(&event, &db, local_key, &config.shared_key_hex)
+                                .ok()
+                        };
+                        // R14 — emit UI refresh signal so the AnticipatedWorkspace
+                        // recomputes without requiring the user to restart the app.
+                        if let (Some(handle), Some(uuid)) = (app_handle, imported_uuid) {
+                            let _ = handle.emit("relay-event-imported", uuid);
+                        }
                     }
                     // Write ACK regardless (idempotent)
                     let ack_name = android_acked(&config.paired_android_id, &event.event_id);

@@ -213,6 +213,29 @@ Comentario de cabecera obligatorio:
 - Telemetría ni métricas de usuarios externos (Fase 3)
 - Calibración de umbrales con datos reales de usuarios (Fase 3)
 
+### Bloqueado adicionalmente por OD-007 (2026-04-29) — D22 aplazada
+
+- Pattern Detector compilado para Android (más allá de la base técnica ya
+  existente que da soporte a la galería)
+- Episode Detector móvil específico (umbrales `GAP_SECS = 2_700`,
+  `MAX_WINDOW_SECS = 7_200`, `JACCARD_THRESHOLD = 0.20` mobile-only)
+- Observer semi-pasivo Android: Tile de sesión / Quick Settings tile
+- Foreground service mobile para captura semi-pasiva
+- Detección de intención sobre comportamiento de navegación móvil
+- Anticipación proactiva mobile (notificaciones contextuales)
+- Resumen / agrupación de episodios de búsqueda en móvil
+- Cualquier feature etiquetada como "tier paid mobile"
+- Workspace anticipado en móvil (Panel B, Episode Detector visible en mobile UI)
+
+### Qué sí sigue válido en mobile (preservado por OD-007)
+
+- Galería Android organizada por categoría (D20)
+- Classifier + Grouper compilados para Android (infraestructura, no producto B)
+- SQLCipher local Android con AES-256-GCM (D1)
+- Sync bidireccional Drive relay (D21)
+- Privacy Dashboard mínimo mobile
+- Captura explícita vía Share Intent (D9 redacción original)
+
 ---
 
 ## Referencia a EquipoEnjambre

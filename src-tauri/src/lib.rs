@@ -1,20 +1,20 @@
 mod classifier;
 mod commands;
-mod crypto;
+pub mod crypto;
 mod episode_detector;
 mod fs_watcher;
 mod grouper;
 mod importer;
 mod pattern_blocks;
 mod pattern_detector;
-mod raw_event;
+pub mod raw_event;
 mod session_builder;
 mod state_machine;
-mod storage;
+pub mod storage;
 mod trust_scorer;
 
 #[cfg(not(target_os = "android"))]
-mod drive_relay;
+pub mod drive_relay;
 
 use commands::{DbState, FsWatcherState};
 use storage::Db;
@@ -100,6 +100,7 @@ pub fn run() {
                             &config_path,
                             &state.0,
                             &local_key,
+                            Some(&handle),
                         )
                         .await
                         {
