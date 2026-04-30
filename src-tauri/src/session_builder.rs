@@ -23,6 +23,9 @@ pub struct SessionResource {
     pub domain: String,
     pub category: String,
     pub captured_at: i64,   // Unix seconds; 0 = bootstrap
+    /// Decrypted URL — never serialized to frontend (D1). Used only for in-process tokenization.
+    #[serde(skip)]
+    pub url: String,
 }
 
 /// A session: a coherent burst of resource captures within a time window.
@@ -45,6 +48,7 @@ pub fn build_sessions(db: &Db, key: &str) -> Result<Vec<Session>, String> {
         .map(|r| SessionResource {
             uuid: r.uuid,
             title: crypto::decrypt(&r.title, key).unwrap_or_else(|| r.domain.clone()),
+            url: crypto::decrypt_any(&r.url, key).unwrap_or_default(),
             domain: r.domain,
             category: r.category,
             captured_at: r.captured_at,
@@ -117,7 +121,8 @@ mod tests {
             uuid: Uuid::new_v4().to_string(),
             title: format!("Resource {ts}"),
             domain: "example.com".into(),
-            category: "development".into(),
+            category: "desarrollo".into(),
+            url: String::new(),
             captured_at: ts,
         }
     }

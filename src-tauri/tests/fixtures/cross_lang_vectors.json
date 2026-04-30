@@ -1,0 +1,9 @@
+{
+  "_doc": "Phase 2.2 cross-language fw1a crypto golden vector. SINGLE source of truth: edit here, both Rust (tests/cross_lang_crypto.rs) and Kotlin (app/src/test/.../RelayCryptoTest.kt) load this file at runtime. Mitigates the INC-002 root cause (each side validating against itself).",
+  "_security": "nonce_hex is intentionally fixed for byte-for-byte parity testing only. Production code MUST use the random-nonce APIs (encrypt_aes / RelayCrypto.encryptFw1a). The nonce-uniqueness tests below also pin this constraint.",
+  "vector_id": "fw1a-v1",
+  "key_hex": "fedcba98765432100123456789abcdeffedcba98765432100123456789abcdef",
+  "plain_utf8": "FlowWeaver fw1a cross-language test vector v1",
+  "nonce_hex": "0123456789abcdef01234567",
+  "expected_ciphertext_hex": "667731610123456789abcdef012345679fd8e64f8a93b8690068d2348dd7ffe87b9fab2bb5d6f7c13aebb6848453d43616e71cba70d7e1cd837b4fe539bd2455556f36ae9e1ebc5c6c428c173d"
+}

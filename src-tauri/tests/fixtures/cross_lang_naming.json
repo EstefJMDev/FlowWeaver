@@ -1,0 +1,49 @@
+{
+  "_doc": "Phase 2.3 cross-language flat-naming golden table. SINGLE source of truth for both src-tauri/tests/relay_naming_convention.rs (Rust) and app/src/test/java/com/flowweaver/app/RelayNamingTest.kt (Kotlin). Edit in one place; both languages assert against this file at runtime.",
+  "_security_note": "Naming has no crypto consequence, but using a shared fixture closes the INC-002 root cause (each side validating against itself). If the desktop or Android template ever drifts, both tests fail with identical failure signatures.",
+  "_bug5_reference": "The 'expected_desktop_acked_prefix' value below is the canonical post-fix shape. drive_relay.rs:314 currently builds the prefix via desktop_acked(id, '') which yields 'fw-<id>-acked-.json' — a Drive 'name contains' substring that NEVER matches real ACKs. See SESSION-2026-04-29-state-update-1.md (Bug #5).",
+  "cases": [
+    {
+      "case_id": "android-uuid-typical",
+      "android_device_id": "android-deadbeef-0000-0000-0000-000000000000",
+      "desktop_device_id": "desktop-cf1e1e75-adae-5b90-8400-aaca0a732b50",
+      "event_id": "11111111-2222-3333-4444-555555555555",
+      "expected_android_pending_name":   "fw-android-deadbeef-0000-0000-0000-000000000000-pending-11111111-2222-3333-4444-555555555555.json",
+      "expected_android_acked_name":     "fw-android-deadbeef-0000-0000-0000-000000000000-acked-11111111-2222-3333-4444-555555555555.json",
+      "expected_android_pending_prefix": "fw-android-deadbeef-0000-0000-0000-000000000000-pending-",
+      "expected_android_acked_prefix":   "fw-android-deadbeef-0000-0000-0000-000000000000-acked-",
+      "expected_desktop_pending_name":   "fw-desktop-cf1e1e75-adae-5b90-8400-aaca0a732b50-pending-11111111-2222-3333-4444-555555555555.json",
+      "expected_desktop_acked_name":     "fw-desktop-cf1e1e75-adae-5b90-8400-aaca0a732b50-acked-11111111-2222-3333-4444-555555555555.json",
+      "expected_desktop_pending_prefix": "fw-desktop-cf1e1e75-adae-5b90-8400-aaca0a732b50-pending-",
+      "expected_desktop_acked_prefix":   "fw-desktop-cf1e1e75-adae-5b90-8400-aaca0a732b50-acked-"
+    },
+    {
+      "case_id": "short-alphanumeric",
+      "android_device_id": "android-tabletA",
+      "desktop_device_id": "desktop-pcMain",
+      "event_id": "evt001",
+      "expected_android_pending_name":   "fw-android-tabletA-pending-evt001.json",
+      "expected_android_acked_name":     "fw-android-tabletA-acked-evt001.json",
+      "expected_android_pending_prefix": "fw-android-tabletA-pending-",
+      "expected_android_acked_prefix":   "fw-android-tabletA-acked-",
+      "expected_desktop_pending_name":   "fw-desktop-pcMain-pending-evt001.json",
+      "expected_desktop_acked_name":     "fw-desktop-pcMain-acked-evt001.json",
+      "expected_desktop_pending_prefix": "fw-desktop-pcMain-pending-",
+      "expected_desktop_acked_prefix":   "fw-desktop-pcMain-acked-"
+    },
+    {
+      "case_id": "android-prefix-no-duplication",
+      "android_device_id": "android-53d34ffd-0e6d-484b-8eda-b55af7a4116c",
+      "desktop_device_id": "desktop-cf1e1e75-adae-5b90-8400-aaca0a732b50",
+      "event_id": "abcdefab-cdef-abcd-efab-cdefabcdefab",
+      "expected_android_pending_name":   "fw-android-53d34ffd-0e6d-484b-8eda-b55af7a4116c-pending-abcdefab-cdef-abcd-efab-cdefabcdefab.json",
+      "expected_android_acked_name":     "fw-android-53d34ffd-0e6d-484b-8eda-b55af7a4116c-acked-abcdefab-cdef-abcd-efab-cdefabcdefab.json",
+      "expected_android_pending_prefix": "fw-android-53d34ffd-0e6d-484b-8eda-b55af7a4116c-pending-",
+      "expected_android_acked_prefix":   "fw-android-53d34ffd-0e6d-484b-8eda-b55af7a4116c-acked-",
+      "expected_desktop_pending_name":   "fw-desktop-cf1e1e75-adae-5b90-8400-aaca0a732b50-pending-abcdefab-cdef-abcd-efab-cdefabcdefab.json",
+      "expected_desktop_acked_name":     "fw-desktop-cf1e1e75-adae-5b90-8400-aaca0a732b50-acked-abcdefab-cdef-abcd-efab-cdefabcdefab.json",
+      "expected_desktop_pending_prefix": "fw-desktop-cf1e1e75-adae-5b90-8400-aaca0a732b50-pending-",
+      "expected_desktop_acked_prefix":   "fw-desktop-cf1e1e75-adae-5b90-8400-aaca0a732b50-acked-"
+    }
+  ]
+}

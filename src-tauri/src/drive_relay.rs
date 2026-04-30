@@ -83,21 +83,41 @@ fn now_ms() -> i64 {
 }
 
 // ── File name helpers (flat naming, TA-approved) ─────────────────────────────
+//
+// Exposed as `#[doc(hidden)] pub` so that the cross-language naming parity test
+// in `tests/relay_naming_convention.rs` can call them directly. Production
+// callers in this module continue to use them unchanged. See also the Kotlin
+// counterpart in `RelayNaming.kt`, which the JVM unit test asserts against the
+// same fixture (tests/fixtures/cross_lang_naming.json).
 
-fn desktop_pending(device_id: &str, event_id: &str) -> String {
+#[doc(hidden)]
+pub fn desktop_pending(device_id: &str, event_id: &str) -> String {
     format!("fw-{device_id}-pending-{event_id}.json")
 }
 
-fn desktop_acked(device_id: &str, event_id: &str) -> String {
+#[doc(hidden)]
+pub fn desktop_acked(device_id: &str, event_id: &str) -> String {
     format!("fw-{device_id}-acked-{event_id}.json")
 }
 
-fn android_pending_prefix(android_id: &str) -> String {
+#[doc(hidden)]
+pub fn android_pending_prefix(android_id: &str) -> String {
     format!("fw-{android_id}-pending-")
 }
 
-fn android_acked(android_id: &str, event_id: &str) -> String {
+#[doc(hidden)]
+pub fn android_acked(android_id: &str, event_id: &str) -> String {
     format!("fw-{android_id}-acked-{event_id}.json")
+}
+
+/// Canonical prefix used to LIST (not build) Android-written ACKs in Drive.
+/// This is the helper that Bug #5 (drive_relay.rs:314) should be using instead
+/// of `desktop_acked(id, "")`. Currently UNUSED in production; introduced here
+/// so the test suite can pin the post-fix semantics. Activating it requires
+/// touching line 314 (out of scope for Phase 2.3 — see SESSION notes for Bug #5).
+#[doc(hidden)]
+pub fn desktop_acked_prefix(device_id: &str) -> String {
+    format!("fw-{device_id}-acked-")
 }
 
 // ── OAuth token refresh ──────────────────────────────────────────────────────
@@ -311,7 +331,7 @@ pub async fn run_relay_cycle(
     }
 
     // 2. Read Android ACKs for desktop events
-    let ack_prefix = desktop_acked(&config.device_id, "");
+    let ack_prefix = desktop_acked_prefix(&config.device_id);
     if let Ok(ack_files) = drive_list_prefix(&token, &ack_prefix).await {
         for (_, name) in ack_files {
             // Extract event_id: fw-<device_id>-acked-<event_id>.json

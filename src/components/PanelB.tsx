@@ -18,13 +18,13 @@ function episodeDominantCategory(episode: Episode): string {
     counts[r.category] = (counts[r.category] ?? 0) + 1;
   }
   const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
-  return sorted[0]?.[0] ?? "other";
+  return sorted[0]?.[0] ?? "otro";
 }
 
 // Returns 2–4 lines. Only uses domain, category, and resource count (D1: no url/title).
 function buildSummaryLines(cluster: Cluster, episodeLabel?: string): string[] {
   const count = cluster.resources.length;
-  const templates = CATEGORY_TEMPLATES[cluster.category] ?? CATEGORY_TEMPLATES["other"];
+  const templates = CATEGORY_TEMPLATES[cluster.category] ?? CATEGORY_TEMPLATES["otro"];
   const lines: string[] = [];
 
   lines.push(`${count} recurso${count !== 1 ? "s" : ""} en ${cluster.domain}`);

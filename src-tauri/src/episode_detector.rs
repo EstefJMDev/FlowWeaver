@@ -54,7 +54,7 @@ fn detect_precise(resources: &[SessionResource]) -> Vec<Episode> {
         return Vec::new();
     }
 
-    let tokenized: Vec<Vec<String>> = resources.iter().map(|r| tokenize(&r.title)).collect();
+    let tokenized: Vec<Vec<String>> = resources.iter().map(|r| tokenize_resource(r)).collect();
     let n = resources.len();
     let mut assigned = vec![false; n];
     let mut episodes = Vec::new();
@@ -155,6 +155,61 @@ fn dominant_token(resources: &[SessionResource]) -> Option<String> {
     counts.into_iter().max_by_key(|(_, c)| *c).map(|(tok, _)| tok)
 }
 
+/// Combine title tokens (×2 for weight), domain stem, and URL path tokens.
+/// Title is doubled so Jaccard favours title similarity over URL similarity (D8).
+fn tokenize_resource(r: &SessionResource) -> Vec<String> {
+    let title_tokens = tokenize(&r.title);
+    // Duplicate title tokens — they contribute double weight in Jaccard
+    let mut tokens: Vec<String> = title_tokens.clone();
+    tokens.extend(title_tokens);
+    // Domain stem (e.g. "imdb" from "imdb.com", "steampowered" from "store.steampowered.com")
+    if let Some(stem) = domain_stem(&r.domain) {
+        if stem.len() >= 3 {
+            tokens.push(stem);
+        }
+    }
+    tokens.extend(extract_url_tokens(&r.url));
+    tokens
+}
+
+/// Extract meaningful tokens from a URL path+query string.
+/// Skips scheme, host, and common noise tokens. No network access (D8).
+fn extract_url_tokens(url: &str) -> Vec<String> {
+    if url.is_empty() {
+        return Vec::new();
+    }
+    // Skip scheme + host; keep everything from the first '/' of the path onward
+    let path = if let Some(p) = url.find("://") {
+        let after_scheme = &url[p + 3..];
+        after_scheme.find('/').map(|i| &after_scheme[i..]).unwrap_or("")
+    } else {
+        url
+    };
+    const NOISE: &[&str] = &["www", "com", "html", "php", "htm", "asp", "aspx", "jsp", "org", "net"];
+    path.split(|c| matches!(c, '/' | '?' | '&' | '=' | '#'))
+        .filter(|t| t.len() >= 3)
+        .map(|t| t.to_lowercase())
+        .filter(|t| {
+            !NOISE.contains(&t.as_str())
+                && !t.starts_with("utm_")
+                && !t.starts_with("fbclid")
+                && !t.starts_with("gclid")
+                && !t.chars().all(|c| c.is_ascii_digit())
+        })
+        .collect()
+}
+
+/// Return the registrable label of a domain without TLD.
+/// "imdb.com" → "imdb", "store.steampowered.com" → "steampowered".
+fn domain_stem(domain: &str) -> Option<String> {
+    let parts: Vec<&str> = domain.split('.').collect();
+    match parts.len() {
+        0 => None,
+        1 => Some(parts[0].to_lowercase()),
+        _ => Some(parts[parts.len() - 2].to_lowercase()),
+    }
+}
+
 fn tokenize(title: &str) -> Vec<String> {
     const STOPWORDS: &[&str] = &[
         "the", "and", "for", "are", "but", "not", "you", "all",
@@ -189,6 +244,18 @@ mod tests {
             title: title.into(),
             domain: "example.com".into(),
             category: category.into(),
+            url: String::new(),
+            captured_at: 0,
+        }
+    }
+
+    fn make_res_with_url(title: &str, domain: &str, url: &str, category: &str) -> SessionResource {
+        SessionResource {
+            uuid: Uuid::new_v4().to_string(),
+            title: title.into(),
+            domain: domain.into(),
+            category: category.into(),
+            url: url.into(),
             captured_at: 0,
         }
     }
@@ -206,10 +273,10 @@ mod tests {
     #[test]
     fn precise_mode_detects_shared_token_cluster() {
         let session = make_session(vec![
-            make_res("React hooks tutorial", "development"),
-            make_res("React component patterns", "development"),
-            make_res("React state management", "development"),
-            make_res("Vue.js getting started", "development"),
+            make_res("React hooks tutorial", "desarrollo"),
+            make_res("React component patterns", "desarrollo"),
+            make_res("React state management", "desarrollo"),
+            make_res("Vue.js getting started", "desarrollo"),
         ]);
         let episodes = detect(&session);
         assert!(!episodes.is_empty());
@@ -222,9 +289,9 @@ mod tests {
     #[test]
     fn broad_mode_fallback_on_category() {
         let session = make_session(vec![
-            make_res("Python beginner guide", "development"),
-            make_res("Rust ownership explained", "development"),
-            make_res("Go concurrency patterns", "development"),
+            make_res("Python beginner guide", "desarrollo"),
+            make_res("Rust ownership explained", "desarrollo"),
+            make_res("Go concurrency patterns", "desarrollo"),
             make_res("Recipe for pasta", "lifestyle"),
         ]);
         let episodes = detect(&session);
@@ -232,7 +299,7 @@ mod tests {
         let ep = &episodes[0];
         assert_eq!(ep.mode, DetectionMode::Broad);
         assert_eq!(ep.resources.len(), 3);
-        assert_eq!(ep.label, "development");
+        assert_eq!(ep.label, "desarrollo");
     }
 
     #[test]
@@ -244,10 +311,70 @@ mod tests {
     #[test]
     fn small_session_below_threshold_yields_no_episodes() {
         let session = make_session(vec![
-            make_res("React tutorial", "development"),
-            make_res("Vue guide", "development"),
+            make_res("React tutorial", "desarrollo"),
+            make_res("Vue guide", "desarrollo"),
         ]);
         // Below PRECISE_MIN=3 and BROAD_MIN=3
         assert!(detect(&session).is_empty());
+    }
+
+    /// H-003: resources with empty titles but URLs from the same domain and similar path
+    /// must group in Precise mode via domain stem + path tokens.
+    #[test]
+    fn url_tokens_group_no_title_resources() {
+        let session = make_session(vec![
+            make_res_with_url("", "imdb.com", "https://imdb.com/title/tt0111161/", "entretenimiento"),
+            make_res_with_url("", "imdb.com", "https://imdb.com/title/tt0068646/", "entretenimiento"),
+            make_res_with_url("", "imdb.com", "https://imdb.com/title/tt0071562/", "entretenimiento"),
+        ]);
+        let episodes = detect(&session);
+        assert!(!episodes.is_empty(), "should detect at least one episode");
+        let ep = &episodes[0];
+        assert_eq!(ep.mode, DetectionMode::Precise, "should be Precise mode via URL tokens");
+        assert_eq!(ep.resources.len(), 3);
+    }
+
+    #[test]
+    fn url_tokens_extract_path_segments() {
+        let tokens = extract_url_tokens("https://github.com/rust-lang/rust/issues/123");
+        assert!(tokens.contains(&"rust".to_string()) || tokens.contains(&"rust-lang".to_string()),
+            "expected path segment tokens, got: {tokens:?}");
+        assert!(!tokens.contains(&"com".to_string()), "TLD noise should be filtered");
+        assert!(!tokens.contains(&"123".to_string()), "pure numerics should be filtered");
+    }
+
+    #[test]
+    fn domain_stem_extracts_registrable_label() {
+        assert_eq!(domain_stem("imdb.com"), Some("imdb".to_string()));
+        assert_eq!(domain_stem("store.steampowered.com"), Some("steampowered".to_string()));
+        assert_eq!(domain_stem("music.apple.com"), Some("apple".to_string()));
+        assert_eq!(domain_stem("youtu.be"), Some("youtu".to_string()));
+    }
+
+    #[test]
+    fn title_tokens_outweigh_url_tokens_in_jaccard() {
+        // 3 resources share the "react" title token → form a Precise group.
+        // The 4th (Vue) shares the same domain+stem but has a different title.
+        // Vue must NOT be included in the React Precise episode.
+        let session = make_session(vec![
+            make_res_with_url("React hooks intro", "github.com",
+                "https://github.com/react-hook-form/react-hook-form", "desarrollo"),
+            make_res_with_url("React hooks advanced", "github.com",
+                "https://github.com/facebook/react", "desarrollo"),
+            make_res_with_url("React state management", "github.com",
+                "https://github.com/reduxjs/redux", "desarrollo"),
+            make_res_with_url("Vue getting started", "github.com",
+                "https://github.com/vuejs/vue", "desarrollo"),
+        ]);
+        let episodes = detect(&session);
+        assert!(!episodes.is_empty());
+        let react_ep = episodes.iter()
+            .find(|e| e.mode == DetectionMode::Precise
+                && e.resources.iter().any(|r| r.title.contains("React")));
+        assert!(react_ep.is_some(), "expected a Precise episode for React resources");
+        let ep = react_ep.unwrap();
+        assert_eq!(ep.resources.len(), 3, "only the 3 React resources should form the episode");
+        assert!(ep.resources.iter().all(|r| r.title.contains("React")),
+            "Vue resource must not be included in the React episode");
     }
 }

@@ -358,12 +358,12 @@ mod tests {
         let db = open_mem();
         for week in 0..3 {
             let t = ts_at(0, week, 9, 15);
-            insert_at(&db, "github.com", "development", t);
-            insert_at(&db, "docs.rs", "development", t + 15 * MIN_S);
-            insert_at(&db, "crates.io", "development", t + 30 * MIN_S);
+            insert_at(&db, "github.com", "desarrollo", t);
+            insert_at(&db, "docs.rs", "desarrollo", t + 15 * MIN_S);
+            insert_at(&db, "crates.io", "desarrollo", t + 30 * MIN_S);
         }
         let patterns = detect_patterns(db.conn(), &test_config()).expect("detect");
-        let p = patterns.iter().find(|p| p.label == "development (mañana)")
+        let p = patterns.iter().find(|p| p.label == "desarrollo (mañana)")
             .expect("development morning pattern not found");
         assert!(p.frequency >= 3, "frequency should be >= 3, got {}", p.frequency);
         assert_eq!(p.temporal_window.day_of_week_mask & 0b0000_0001, 0b0000_0001,
@@ -409,8 +409,8 @@ mod tests {
         let db = open_mem();
         for week in 0..3 {
             let t = ts_at(0, week, 9, 15);
-            insert_at(&db, "github.com", "development", t);
-            insert_at(&db, "docs.rs", "development", t + 15 * MIN_S);
+            insert_at(&db, "github.com", "desarrollo", t);
+            insert_at(&db, "docs.rs", "desarrollo", t + 15 * MIN_S);
         }
         let patterns = detect_patterns(db.conn(), &test_config()).expect("detect");
         assert!(!patterns.is_empty());

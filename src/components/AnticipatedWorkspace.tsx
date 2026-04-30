@@ -18,8 +18,8 @@ export function AnticipatedWorkspace({ episodes }: Props) {
   if (preciseEpisodes.length === 0) return null;
 
   const ep = preciseEpisodes[0];
-  const category = ep.resources[0]?.category ?? "other";
-  const actions = (CATEGORY_TEMPLATES[category] ?? CATEGORY_TEMPLATES.other).slice(0, 3);
+  const category = ep.resources[0]?.category ?? "otro";
+  const actions = (CATEGORY_TEMPLATES[category] ?? CATEGORY_TEMPLATES.otro).slice(0, 3);
   const preview = ep.resources.slice(0, 3);
   const extra = ep.resources.length - preview.length;
 

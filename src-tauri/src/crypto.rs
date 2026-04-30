@@ -74,6 +74,39 @@ pub fn encrypt_aes(plaintext: &str, key: &str) -> String {
     hex::encode(out)
 }
 
+/// Test-only encrypt with caller-supplied 12-byte nonce. Exists ONLY so that
+/// integration tests in `tests/cross_lang_crypto.rs` can pin a deterministic
+/// ciphertext shared with the Kotlin side via `tests/fixtures/cross_lang_vectors.json`.
+///
+/// SECURITY — DO NOT CALL FROM PRODUCTION CODE. Reusing a nonce with the same key
+/// in AES-GCM destroys confidentiality and authentication. Every production code
+/// path MUST use [`encrypt_aes`], which generates a fresh nonce via `OsRng`.
+///
+/// `#[doc(hidden)]` keeps this out of the public docs; the `_for_test_with_explicit_nonce`
+/// suffix makes any accidental call obvious in code review. Integration tests in
+/// `tests/` cannot see `#[cfg(test)]` items inside `src/`, hence the regular `pub`.
+#[doc(hidden)]
+pub fn encrypt_aes_for_test_with_explicit_nonce(
+    plaintext: &str,
+    key: &str,
+    nonce_bytes: &[u8; 12],
+) -> String {
+    use aes_gcm::{
+        aead::{Aead, KeyInit},
+        Aes256Gcm, Nonce,
+    };
+    let aes_key = derive_key_aes(key);
+    let cipher = Aes256Gcm::new((&aes_key).into());
+    let nonce = Nonce::from_slice(nonce_bytes);
+    let ct = cipher
+        .encrypt(nonce, plaintext.as_bytes())
+        .expect("AES-256-GCM encrypt failed");
+    let mut out = MAGIC_AES.to_vec();
+    out.extend_from_slice(nonce_bytes);
+    out.extend_from_slice(&ct);
+    hex::encode(out)
+}
+
 /// Decrypt AES-256-GCM ciphertext produced by `encrypt_aes`.
 pub fn decrypt_aes(ciphertext: &str, key: &str) -> Option<String> {
     use aes_gcm::{aead::{Aead, KeyInit}, Aes256Gcm, Nonce};

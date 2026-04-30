@@ -376,16 +376,16 @@ mod tests {
     #[test]
     fn privacy_stats_counts_categories_and_domains() {
         let db = open_mem();
-        insert(&db, "github.com", "development");
-        insert(&db, "github.com", "development");
-        insert(&db, "medium.com", "articles");
+        insert(&db, "github.com", "desarrollo");
+        insert(&db, "github.com", "desarrollo");
+        insert(&db, "medium.com", "artículos");
 
         let stats = db.privacy_stats().expect("stats failed");
         assert_eq!(stats.resource_count, 3);
 
-        let dev = stats.categories.iter().find(|c| c.category == "development").unwrap();
+        let dev = stats.categories.iter().find(|c| c.category == "desarrollo").unwrap();
         assert_eq!(dev.count, 2);
-        let art = stats.categories.iter().find(|c| c.category == "articles").unwrap();
+        let art = stats.categories.iter().find(|c| c.category == "artículos").unwrap();
         assert_eq!(art.count, 1);
 
         let gh = stats.domains.iter().find(|d| d.domain == "github.com").unwrap();
@@ -395,8 +395,8 @@ mod tests {
     #[test]
     fn delete_all_clears_table() {
         let db = open_mem();
-        insert(&db, "github.com", "development");
-        insert(&db, "medium.com", "articles");
+        insert(&db, "github.com", "desarrollo");
+        insert(&db, "medium.com", "artículos");
         assert_eq!(db.count().unwrap(), 2);
 
         db.delete_all().expect("delete_all failed");

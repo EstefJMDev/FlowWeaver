@@ -246,7 +246,7 @@ mod tests {
             uuid: uuid::Uuid::new_v4().to_string(),
             title: title.to_string(),
             domain: "github.com".to_string(),
-            category: "development".to_string(),
+            category: "desarrollo".to_string(),
         }
     }
 }

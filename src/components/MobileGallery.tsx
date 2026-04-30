@@ -71,6 +71,18 @@ export function MobileGallery() {
 
   useEffect(() => {
     loadResources();
+    // R14-mobile — refresh the gallery when the user returns to the app after
+    // sharing a URL via ShareIntentActivity. ShareIntentActivity runs in its
+    // own activity and writes to the same SQLite DB; the WebView is suspended
+    // during the share flow and resumed when the user navigates back, so
+    // visibilitychange is the canonical signal to reload.
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") {
+        loadResources();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
   }, []);
 
   async function loadResources() {

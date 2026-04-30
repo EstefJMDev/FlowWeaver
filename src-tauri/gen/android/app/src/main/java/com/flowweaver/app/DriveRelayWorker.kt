@@ -65,16 +65,38 @@ class DriveRelayWorker(
         private const val PREF_DEVICE_ID   = "device_id"
         private const val PREF_DRIVE_TOKEN = "drive_access_token"
         private const val PREF_PAIRING_KEY = "pairing_shared_key"   // hex-encoded AES-256 key from QR pairing
+        // Bug #1 fix (sesión 2026-04-30): paired desktop device_id ("desktop-<uuid>")
+        // necesario para leer pending/acked del desktop con naming flat compatible con
+        // drive_relay.rs::desktop_pending / android_acked.
+        private const val PREF_PAIRED_DESKTOP_ID = "paired_desktop_id"
+
+        // R16 (2026-04-29): refresh_token + client credentials persisted on Android
+        // so the worker can renew the access_token autonomously when it expires.
+        // Without these, sync silently breaks 1h after setup.
+        private const val PREF_CLIENT_ID         = "drive_client_id"
+        private const val PREF_CLIENT_SECRET     = "drive_client_secret"
+        private const val PREF_REFRESH_TOKEN     = "drive_refresh_token"
+        private const val PREF_TOKEN_EXPIRES_AT  = "drive_token_expires_at"  // Unix seconds
+        // R16 hardening: sticky flag for permanent OAuth failures (invalid_grant
+        // = refresh revoked / expired / password changed). When set, the UI must
+        // prompt the user to reconnect Drive — the worker stops retrying on its own.
+        private const val PREF_OAUTH_STATE       = "drive_oauth_state"        // "" | "invalid_grant"
+        private const val OAUTH_STATE_INVALID    = "invalid_grant"
 
         // Google Drive AppData folder — access restricted to this app only.
         private const val DRIVE_UPLOAD_URL =
             "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart"
         private const val DRIVE_FILES_URL  =
             "https://www.googleapis.com/drive/v3/files"
-        private const val RELAY_ROOT       = "flowweaver-relay"
+        private const val OAUTH_TOKEN_URL  =
+            "https://oauth2.googleapis.com/token"
 
         // Timeout for events without ACK — after this they are removed from the queue.
         private const val ACK_TIMEOUT_MS   = 7L * 24 * 60 * 60 * 1000 // 7 days
+
+        // Refresh access_token if less than this many seconds remain. 60s buffer
+        // avoids racing with token expiration mid-request.
+        private const val TOKEN_REFRESH_BUFFER_S = 60L
     }
 
     private val http = OkHttpClient.Builder()
@@ -90,7 +112,18 @@ class DriveRelayWorker(
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         val deviceId     = prefs.getString(PREF_DEVICE_ID, null) ?: return@withContext Result.failure()
-        val accessToken  = prefs.getString(PREF_DRIVE_TOKEN, null) ?: return@withContext Result.retry()
+
+        // R16: refresh access_token if needed; distinguish transient vs permanent failures.
+        // Permanent failure (invalid_grant) → Result.failure() so WorkManager stops the
+        // backoff loop. Transient (5xx, network) → Result.retry() to back off and retry.
+        val accessToken  = when (val tk = ensureValidAccessToken()) {
+            is TokenResult.Valid         -> tk.token
+            is TokenResult.RetryLater    -> return@withContext Result.retry()
+            is TokenResult.Unrecoverable -> {
+                Log.w(TAG, "OAuth permanently failed (${tk.reason}) — user must reconnect Drive")
+                return@withContext Result.failure()
+            }
+        }
         val pairingKey   = prefs.getString(PREF_PAIRING_KEY, null)
 
         // Resolve the DB file path — same location Rust opens.
@@ -119,18 +152,147 @@ class DriveRelayWorker(
         }
 
         // ── Direction 3 (NEW in T-0c-002): Desktop → Android ────────────────────
-        if (pairingKey != null) {
+        // Bug #1 fix: requiere paired_desktop_id ("desktop-<uuid>") para resolver
+        // los nombres flat del desktop (drive_relay.rs convention).
+        val pairedDesktopId = prefs.getString(PREF_PAIRED_DESKTOP_ID, null)
+        if (pairingKey != null && pairedDesktopId != null) {
             try {
-                downloadDesktopEvents(deviceId, accessToken, pairingKey, fieldKey)
+                downloadDesktopEvents(deviceId, pairedDesktopId, accessToken, pairingKey, fieldKey)
             } catch (e: Exception) {
                 Log.w(TAG, "Download Desktop→Android failed: ${e.message}")
                 return@withContext Result.retry()
             }
         } else {
-            Log.d(TAG, "No pairing key — skipping desktop→android direction")
+            Log.d(TAG, "No pairing key or paired_desktop_id — skipping desktop→android direction")
         }
 
         Result.success()
+    }
+
+    // ── R16: OAuth access_token lifecycle ────────────────────────────────────────
+
+    /**
+     * Outcome of an attempt to obtain a valid access_token.
+     *
+     *   Valid          — usable access_token, fresh or just-refreshed.
+     *   RetryLater     — transient failure (5xx, network, timeout, missing credentials
+     *                    on first run). The Worker should retry with WorkManager backoff.
+     *   Unrecoverable  — permanent failure (4xx with error=invalid_grant: refresh_token
+     *                    revoked / expired / password changed / invalid_client). Retrying
+     *                    will not help — the user must reconnect Drive. WorkManager must
+     *                    stop retrying so we don't loop silently burning battery.
+     */
+    private sealed class TokenResult {
+        data class Valid(val token: String) : TokenResult()
+        object RetryLater : TokenResult()
+        data class Unrecoverable(val reason: String) : TokenResult()
+    }
+
+    /**
+     * Returns a non-expired access_token for Drive API calls.
+     *
+     * R16 hardening: distinguishes transient OAuth failures from permanent ones.
+     *   - Valid current token         → Valid
+     *   - Token expired, refresh OK   → Valid (with new token persisted)
+     *   - Network/5xx/missing creds   → RetryLater
+     *   - 4xx invalid_grant / 401     → Unrecoverable (sticky pref set)
+     *
+     * Detected during OAuth setup on 2026-04-29 (HO-024).
+     */
+    private fun ensureValidAccessToken(): TokenResult {
+        // Sticky permanent-failure flag — once set, the worker stops trying until
+        // the user reconnects Drive (which clears this pref on the desktop side).
+        val oauthState = prefs.getString(PREF_OAUTH_STATE, "") ?: ""
+        if (oauthState == OAUTH_STATE_INVALID) {
+            return TokenResult.Unrecoverable("oauth_state=$oauthState (sticky)")
+        }
+
+        val current      = prefs.getString(PREF_DRIVE_TOKEN, null)
+        val expiresAt    = prefs.getLong(PREF_TOKEN_EXPIRES_AT, 0L)
+        val nowSec       = System.currentTimeMillis() / 1000
+
+        if (current != null && nowSec < expiresAt - TOKEN_REFRESH_BUFFER_S) {
+            return TokenResult.Valid(current)
+        }
+
+        val clientId     = prefs.getString(PREF_CLIENT_ID, null)
+        val clientSecret = prefs.getString(PREF_CLIENT_SECRET, null)
+        val refreshToken = prefs.getString(PREF_REFRESH_TOKEN, null)
+
+        if (clientId.isNullOrBlank() || clientSecret.isNullOrBlank() || refreshToken.isNullOrBlank()) {
+            // First run before configure_drive completes, or partial wipe. Not permanent.
+            Log.w(TAG, "No refresh credentials persisted — cannot renew access_token (R16)")
+            return TokenResult.RetryLater
+        }
+
+        Log.i(TAG, "Refreshing access_token via refresh_token (R16 mitigation)")
+
+        return try {
+            val formBody = ("grant_type=refresh_token" +
+                    "&client_id=" + java.net.URLEncoder.encode(clientId, "UTF-8") +
+                    "&client_secret=" + java.net.URLEncoder.encode(clientSecret, "UTF-8") +
+                    "&refresh_token=" + java.net.URLEncoder.encode(refreshToken, "UTF-8"))
+                .toByteArray(Charsets.UTF_8)
+
+            val req = Request.Builder()
+                .url(OAUTH_TOKEN_URL)
+                .post(formBody.toRequestBody("application/x-www-form-urlencoded".toMediaType()))
+                .build()
+
+            http.newCall(req).execute().use { resp ->
+                val body = resp.body?.string().orEmpty()
+
+                if (resp.isSuccessful) {
+                    val json     = JSONObject(body)
+                    val newToken = json.optString("access_token").takeIf { it.isNotBlank() }
+                        ?: return TokenResult.RetryLater
+                    val expiresIn    = json.optLong("expires_in", 3600L)
+                    val newExpiresAt = nowSec + expiresIn
+
+                    prefs.edit()
+                        .putString(PREF_DRIVE_TOKEN, newToken)
+                        .putLong(PREF_TOKEN_EXPIRES_AT, newExpiresAt)
+                        .apply()
+
+                    Log.i(TAG, "access_token refreshed; expires_at=$newExpiresAt")
+                    return TokenResult.Valid(newToken)
+                }
+
+                // 4xx — possibly permanent. Inspect the error code.
+                if (resp.code in 400..499) {
+                    val errorCode = try {
+                        JSONObject(body).optString("error", "")
+                    } catch (_: Exception) { "" }
+
+                    // invalid_grant → refresh_token revoked / expired / password changed.
+                    // invalid_client → client_id/client_secret bad.
+                    // Both are permanent for this Worker; user must reconnect Drive.
+                    val permanent = errorCode == "invalid_grant" ||
+                                    errorCode == "invalid_client" ||
+                                    resp.code == 400 || resp.code == 401
+                    if (permanent) {
+                        Log.w(TAG, "Token refresh permanently failed: code=${resp.code} error=$errorCode")
+                        // Set sticky flag so subsequent Worker runs short-circuit.
+                        prefs.edit()
+                            .putString(PREF_OAUTH_STATE, OAUTH_STATE_INVALID)
+                            .apply()
+                        return TokenResult.Unrecoverable("http=${resp.code} error=$errorCode")
+                    }
+
+                    // Other 4xx (rate limit on the token endpoint, transient policy reject).
+                    Log.w(TAG, "Token refresh transient 4xx: code=${resp.code} error=$errorCode")
+                    return TokenResult.RetryLater
+                }
+
+                // 5xx → transient.
+                Log.w(TAG, "Token refresh server error: code=${resp.code}")
+                return TokenResult.RetryLater
+            }
+        } catch (e: Exception) {
+            // Network exception, timeout, DNS failure — transient.
+            Log.w(TAG, "Token refresh exception: ${e.message}")
+            TokenResult.RetryLater
+        }
     }
 
     // ── Direction 1: Upload Android captures to Drive ────────────────────────────
@@ -152,23 +314,27 @@ class DriveRelayWorker(
                 continue
             }
 
-            val remotePath = "$RELAY_ROOT/android-$deviceId/pending/$eventId.json"
-            driveUploadOrUpdate(token, remotePath, eventJson)
-            Log.d(TAG, "Uploaded Android event $eventId")
+            // Bug #1 fix: naming flat compatible con drive_relay.rs::android_pending_prefix.
+            // Construcción delegada a RelayNaming (Phase 2.3 — gate test cross-lang).
+            val remoteName = RelayNaming.androidPending(deviceId, eventId)
+            driveUploadOrUpdate(token, remoteName, eventJson)
+            Log.d(TAG, "Uploaded Android event $eventId as $remoteName")
         }
     }
 
     // ── Direction 2: Read ACKs from desktop, clean local queue ──────────────────
 
     private fun readAndroidAcks(deviceId: String, token: String) {
-        val ackedPath = "$RELAY_ROOT/android-$deviceId/acked"
-        val files     = driveListFiles(token, ackedPath) ?: return
-        val queueDir  = pendingQueueDir() ?: return
+        // Bug #1 fix: prefix flat. ACK name = "fw-<android_id>-acked-<event_id>.json".
+        val ackedPrefix = RelayNaming.androidAckedPrefix(deviceId)
+        val files       = driveListFilesByPrefix(token, ackedPrefix) ?: return
+        val queueDir    = pendingQueueDir() ?: return
 
         for (fileId in files) {
             val meta = driveGetFileMeta(token, fileId) ?: continue
-            val name = meta.optString("name") // "<event_id>.json"
-            val eventId = name.removeSuffix(".json")
+            val name = meta.optString("name")
+            val eventId = name.removePrefix(ackedPrefix).removeSuffix(".json")
+            if (eventId.isBlank()) continue
             val localFile = File(queueDir, "$eventId.json")
             if (localFile.exists()) {
                 localFile.delete()
@@ -193,12 +359,14 @@ class DriveRelayWorker(
      */
     private fun downloadDesktopEvents(
         deviceId: String,
+        pairedDesktopId: String,
         token: String,
         pairingKeyHex: String,
         fieldKey: ByteArray
     ) {
-        val pendingPath = "$RELAY_ROOT/desktop-$deviceId/pending"
-        val driveFiles  = driveListFiles(token, pendingPath) ?: return
+        // Bug #1 fix: naming flat. Desktop emite con su propio device_id ("desktop-<uuid>").
+        val pendingPrefix = RelayNaming.desktopPendingPrefix(pairedDesktopId)
+        val driveFiles    = driveListFilesByPrefix(token, pendingPrefix) ?: return
 
         val db = LocalDb(applicationContext)
 
@@ -233,7 +401,7 @@ class DriveRelayWorker(
             // Use event_id as uuid — unique per (device_id namespace, event_id) per AR-0c-001.
             if (db.uuidExists(eventId)) {
                 Log.d(TAG, "Desktop event $eventId already in SQLite — skip insert, write ACK")
-                writeDesktopAck(token, deviceId, eventId)
+                writeDesktopAck(token, pairedDesktopId, eventId)
                 continue
             }
 
@@ -261,7 +429,7 @@ class DriveRelayWorker(
             Log.d(TAG, "Desktop event $eventId: inserted=$inserted domain=$domain category=$category")
 
             // ── ACK back to desktop ───────────────────────────────────────────────
-            writeDesktopAck(token, deviceId, eventId)
+            writeDesktopAck(token, pairedDesktopId, eventId)
         }
 
         db.close()
@@ -342,36 +510,16 @@ class DriveRelayWorker(
     // ── Desktop field decryption (fw1a — pairing key) ────────────────────────────
 
     /**
-     * Decrypt a fw1a (AES-256-GCM) field from a desktop raw_event.
-     * The pairing key is stored as hex in SharedPreferences.
-     * Wire format: hex(MAGIC_AES "fw1a" | 12-byte nonce | ciphertext+tag)
-     * Matches Rust crypto.rs decrypt_aes().
+     * Decrypt a fw1a (AES-256-GCM) field from a desktop raw_event using the shared
+     * pairing key (hex). Delegates to RelayCrypto so the same code is exercised by
+     * cross-language JVM unit tests (Phase 2.2).
      */
     private fun decryptDesktopField(hexField: String?, keyHex: String): String? {
-        if (hexField.isNullOrBlank()) return null
-        val bytes = hexField.hexToByteArray() ?: return null
-        // fw1a magic = 0x66 0x77 0x31 0x61
-        val magic = byteArrayOf(0x66, 0x77, 0x31, 0x61)
-        if (bytes.size < magic.size + 12 + 16) return null
-        if (!bytes.startsWith(magic)) return null
-
-        val nonce = bytes.copyOfRange(magic.size, magic.size + 12)
-        val ct    = bytes.copyOfRange(magic.size + 12, bytes.size)
-
-        return try {
-            val keyBytes = keyHex.hexToByteArray() ?: return null
-            val secretKey = javax.crypto.spec.SecretKeySpec(keyBytes, "AES")
-            val cipher = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")
-            cipher.init(
-                javax.crypto.Cipher.DECRYPT_MODE,
-                secretKey,
-                javax.crypto.spec.GCMParameterSpec(128, nonce)
-            )
-            String(cipher.doFinal(ct), Charsets.UTF_8)
-        } catch (e: Exception) {
-            Log.w(TAG, "AES-GCM decrypt failed for desktop field: ${e.message}")
-            null
+        val plain = RelayCrypto.decryptFw1a(hexField, keyHex)
+        if (plain == null && !hexField.isNullOrBlank()) {
+            Log.w(TAG, "AES-GCM decrypt failed for desktop field (magic/auth/malformed)")
         }
+        return plain
     }
 
     // ── Migration: XOR (fw0a) → Android Keystore AES-256-GCM (fw2a) ─────────────
@@ -401,12 +549,13 @@ class DriveRelayWorker(
 
     // ── ACK writer ───────────────────────────────────────────────────────────────
 
-    private fun writeDesktopAck(token: String, deviceId: String, eventId: String) {
-        val ackPath = "$RELAY_ROOT/desktop-$deviceId/acked/$eventId.json"
+    private fun writeDesktopAck(token: String, pairedDesktopId: String, eventId: String) {
+        // Bug #1 fix: naming flat. Match desktop_acked() en drive_relay.rs.
+        val ackName = RelayNaming.desktopAcked(pairedDesktopId, eventId)
         val ackBody = """{"event_id":"$eventId","acked_at":${System.currentTimeMillis()}}"""
         try {
-            driveUploadOrUpdate(token, ackPath, ackBody)
-            Log.d(TAG, "ACK written for desktop event $eventId")
+            driveUploadOrUpdate(token, ackName, ackBody)
+            Log.d(TAG, "ACK written for desktop event $eventId as $ackName")
         } catch (e: Exception) {
             Log.w(TAG, "Failed to write ACK for $eventId: ${e.message}")
             // Non-fatal: desktop will retry the event on the next Worker run;
@@ -429,13 +578,13 @@ class DriveRelayWorker(
     // this app and not visible in the user's Drive UI.
 
     /**
-     * Upload or update a file in Drive AppData.
-     * If a file at [remotePath] already exists, its content is replaced (idempotent).
-     * Uses multipart upload for metadata + content in a single request.
+     * Upload or update a file in Drive AppData. Naming is flat (Bug #1 fix):
+     * `remoteName` is the full file name (no slashes). Match drive_relay.rs convention.
+     * If a file with [remoteName] already exists, its content is replaced (idempotent).
      */
-    private fun driveUploadOrUpdate(token: String, remotePath: String, content: String) {
+    private fun driveUploadOrUpdate(token: String, remoteName: String, content: String) {
         // Check if file already exists so we can PATCH instead of POST.
-        val existingId = driveGetFileId(token, remotePath)
+        val existingId = driveGetFileId(token, remoteName)
 
         val contentBytes = content.toByteArray(Charsets.UTF_8)
         val mediaType    = "application/json; charset=utf-8".toMediaType()
@@ -451,12 +600,9 @@ class DriveRelayWorker(
                 if (!resp.isSuccessful) throw RuntimeException("Drive PATCH failed: ${resp.code}")
             }
         } else {
-            // POST new file with metadata specifying the path components.
-            val parts   = remotePath.split("/")
-            val fileName = parts.last()
-            // Build parent folder chain (simplified: Drive AppData has flat namespace in this impl).
+            // POST new file with flat name in appDataFolder (no nested folders).
             val metadata = JSONObject().apply {
-                put("name", fileName)
+                put("name", remoteName)
                 put("parents", JSONArray().put("appDataFolder"))
             }.toString()
 
@@ -483,9 +629,8 @@ class DriveRelayWorker(
         }
     }
 
-    /** Return the Drive file ID for a given name in AppData, or null if not found. */
-    private fun driveGetFileId(token: String, remotePath: String): String? {
-        val name = remotePath.split("/").last()
+    /** Return the Drive file ID for a given flat name in AppData, or null if not found. */
+    private fun driveGetFileId(token: String, name: String): String? {
         val url  = "$DRIVE_FILES_URL?spaces=appDataFolder&fields=files(id,name)&q=name+'$name'+and+trashed=false"
         val req  = Request.Builder()
             .url(url)
@@ -501,12 +646,11 @@ class DriveRelayWorker(
     }
 
     /**
-     * List file IDs in a Drive AppData "folder" (prefix-based name matching).
+     * List file IDs whose name starts with [prefix] (flat naming, Bug #1).
      * Returns null on network error.
      */
-    private fun driveListFiles(token: String, remotePath: String): List<String>? {
-        val prefix = remotePath.split("/").last()
-        val url    = "$DRIVE_FILES_URL?spaces=appDataFolder&fields=files(id,name)&q=name+contains+'$prefix/'+and+trashed=false"
+    private fun driveListFilesByPrefix(token: String, prefix: String): List<String>? {
+        val url    = "$DRIVE_FILES_URL?spaces=appDataFolder&fields=files(id,name)&q=name+contains+'$prefix'+and+trashed=false"
         val req    = Request.Builder()
             .url(url)
             .addHeader("Authorization", "Bearer $token")
@@ -520,7 +664,7 @@ class DriveRelayWorker(
                 List(files.length()) { i -> files.getJSONObject(i).getString("id") }
             }
         } catch (e: Exception) {
-            Log.w(TAG, "driveListFiles failed: ${e.message}")
+            Log.w(TAG, "driveListFilesByPrefix failed: ${e.message}")
             null
         }
     }
@@ -558,17 +702,4 @@ class DriveRelayWorker(
         }
     }
 
-    // ── Hex extension helpers ────────────────────────────────────────────────────
-
-    private fun String.hexToByteArray(): ByteArray? {
-        if (length % 2 != 0) return null
-        return try {
-            ByteArray(length / 2) { i -> substring(i * 2, i * 2 + 2).toInt(16).toByte() }
-        } catch (_: NumberFormatException) { null }
-    }
-
-    private fun ByteArray.startsWith(prefix: ByteArray): Boolean {
-        if (size < prefix.size) return false
-        return prefix.indices.all { this[it] == prefix[it] }
-    }
 }

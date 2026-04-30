@@ -36,6 +36,7 @@ class ShareIntentActivity : Activity() {
         private const val TAG              = "ShareIntentActivity"
         private const val PREFS_NAME       = "flowweaver_relay"
         private const val PREF_DEVICE_ID   = "device_id"
+        private const val PREF_PAIRING_KEY = "pairing_shared_key"   // hex AES-256 from QR pairing
         private const val SCHEMA_VERSION   = 1
 
         /** Generate or retrieve the stable device_id for this Android installation. */
@@ -62,20 +63,29 @@ class ShareIntentActivity : Activity() {
             return
         }
 
-        val rawText = intent.getStringExtra(Intent.EXTRA_TEXT) ?: run {
+        val extraText = intent.getStringExtra(Intent.EXTRA_TEXT) ?: run {
             Toast.makeText(this, "No URL recibida", Toast.LENGTH_SHORT).show()
             finish()
             return
         }
 
-        // Basic URL validation — reject plain text that is not a URL.
-        if (!rawText.startsWith("http://") && !rawText.startsWith("https://")) {
+        // Some apps (YouTube, Chrome, etc.) send "Title\nURL" in EXTRA_TEXT.
+        // Extract the URL part; any text before it is a candidate title.
+        val urlRegex = Regex("https?://\\S+")
+        val rawText = urlRegex.find(extraText)?.value ?: run {
             Toast.makeText(this, "Solo se admiten URLs", Toast.LENGTH_SHORT).show()
             finish()
             return
         }
+        val titleFromText = extraText.substringBefore(rawText)
+            .trim().trimEnd('\n', '\r', '-', '–', '|', '·').trim()
+            .ifBlank { null }
 
-        val titleRaw = intent.getStringExtra(Intent.EXTRA_SUBJECT) ?: ""
+        // H-001 fix: prefer EXTRA_SUBJECT (YouTube title), fall back to text before URL.
+        val titleRaw = intent.getStringExtra(Intent.EXTRA_SUBJECT)
+            ?.takeIf { it.isNotBlank() }
+            ?: titleFromText
+            ?: ""
 
         // ── Pipeline (< 300ms budget — all local, no network) ──────────────────
         val deviceId   = getOrCreateDeviceId(this)
@@ -86,13 +96,34 @@ class ShareIntentActivity : Activity() {
         val domain   = extractDomain(rawText)
         val category = classifyDomain(domain)
 
-        // D1: encrypt url and title with AES-256-GCM before any storage.
-        val fieldKey       = FieldCrypto.deriveKey(FieldCrypto.FIELD_KEY_PASSPHRASE)
-        val urlEncrypted   = FieldCrypto.encrypt(rawText, fieldKey)
-        val titleEncrypted = FieldCrypto.encrypt(titleRaw, fieldKey)
+        // ── Bug #3 fix (sesión 2026-04-30) ───────────────────────────────────────
+        // Separar cifrado de tránsito (Drive, descifrable por desktop con
+        // pairing_shared_key) del cifrado local (SQLite Android, Keystore).
+        // Antes ambos usaban field_key local → desktop nunca descifraba el upload.
+
+        // Local — Keystore field key (lo que se guarda en SQLite Android).
+        val fieldKey            = FieldCrypto.deriveKey(FieldCrypto.FIELD_KEY_PASSPHRASE)
+        val urlEncryptedLocal   = FieldCrypto.encrypt(rawText, fieldKey)
+        val titleEncryptedLocal = FieldCrypto.encrypt(titleRaw, fieldKey)
+
+        // Tránsito — pairing_shared_key (compartida con desktop vía QR pairing).
+        // Misma derivación SHA-256(string) que crypto.rs::derive_key_aes y que
+        // DriveRelayWorker.decryptDesktopField (Bug #2 alineado).
+        val pairingKeyHex = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+            .getString(PREF_PAIRING_KEY, null)
+        if (pairingKeyHex.isNullOrBlank()) {
+            Log.e(TAG, "pairing_shared_key not configured — share aborted")
+            Toast.makeText(this, "Empareja primero con el desktop", Toast.LENGTH_LONG).show()
+            finish()
+            return
+        }
+        // RelayCrypto.encryptFw1a usa SecureRandom internamente; nunca exponer nonce
+        // en API de producción (ver RelayCrypto.kt — refuerzo de seguridad).
+        val urlEncryptedTransit   = RelayCrypto.encryptFw1a(rawText,  pairingKeyHex)
+        val titleEncryptedTransit = RelayCrypto.encryptFw1a(titleRaw, pairingKeyHex)
 
         // Build raw_event JSON — matches TS-0b-android-001 schema.
-        // domain and category are in clear (D1). url and title are encrypted.
+        // domain and category are in clear (D1). url and title travel in fw1a (transit key).
         val rawEvent = JSONObject().apply {
             put("event_id",        eventId)
             put("device_id",       deviceId)
@@ -100,8 +131,8 @@ class ShareIntentActivity : Activity() {
             put("captured_at",     capturedAt)
             put("domain",          domain)
             put("category",        category)
-            put("url_encrypted",   urlEncrypted)
-            put("title_encrypted", titleEncrypted)
+            put("url_encrypted",   urlEncryptedTransit)
+            put("title_encrypted", titleEncryptedTransit)
             put("schema_version",  SCHEMA_VERSION)
         }
 
@@ -110,11 +141,12 @@ class ShareIntentActivity : Activity() {
         pendingUndoFile = queueFile
 
         // Also insert immediately into local SQLite so the gallery shows it right away.
+        // Local DB usa la clave Keystore — nunca la pairing key.
         val db = LocalDb(this)
         db.insertOrIgnore(
             uuid           = eventId,
-            urlEncrypted   = urlEncrypted,
-            titleEncrypted = titleEncrypted,
+            urlEncrypted   = urlEncryptedLocal,
+            titleEncrypted = titleEncryptedLocal,
             domain         = domain,
             category       = category,
             capturedAt     = capturedAt

@@ -227,7 +227,7 @@ mod tests {
         let now = 1_700_000_000;
         let p = pattern(
             "p1",
-            &[("development", 1.0)],
+            &[("desarrollo", 1.0)],
             TimeBucket::Morning,
             0b0000_0001,
             10,
@@ -245,7 +245,7 @@ mod tests {
         let now = 1_700_000_000;
         let recent = pattern(
             "recent",
-            &[("development", 1.0)],
+            &[("desarrollo", 1.0)],
             TimeBucket::Morning,
             0b0000_0001,
             10,
@@ -253,7 +253,7 @@ mod tests {
         );
         let old = pattern(
             "old",
-            &[("development", 1.0)],
+            &[("desarrollo", 1.0)],
             TimeBucket::Morning,
             0b0000_0001,
             10,
@@ -293,7 +293,7 @@ mod tests {
         let now = 1_700_000_000;
         let p = pattern(
             "single",
-            &[("development", 1.0)],
+            &[("desarrollo", 1.0)],
             TimeBucket::Morning,
             0b0000_0001,
             5,
@@ -409,7 +409,7 @@ mod tests {
         // trust = 0.5*0.5 + 0.3*1.0 + 0.2*0.833 ≈ 0.717
         let p = pattern(
             "mid",
-            &[("development", 1.0)],
+            &[("desarrollo", 1.0)],
             TimeBucket::Morning,
             0b0000_0011,
             6,

@@ -33,7 +33,7 @@ const ANDROID_DEVICE_ID: &str = "android-deadbeef-0000-0000-0000-000000000000";
 const ORIGIN_DOMAIN: &str = "github.com";
 const ORIGIN_URL: &str = "https://github.com/rust-lang/rust";
 const ORIGIN_TITLE: &str = "rust-lang/rust: Empowering everyone to build reliable software";
-const ORIGIN_CATEGORY: &str = "development";
+const ORIGIN_CATEGORY: &str = "desarrollo";
 
 fn open_db() -> Db {
     let db = Db::open(Path::new(":memory:"), "test-key").expect("open db");

@@ -27,7 +27,7 @@ export function PanelC({ clusters }: Props) {
       ) : (
         <div className="panel-c__sections">
           {categories.map((cat) => {
-            const actions = CATEGORY_TEMPLATES[cat] ?? CATEGORY_TEMPLATES.other;
+            const actions = CATEGORY_TEMPLATES[cat] ?? CATEGORY_TEMPLATES.otro;
             return (
               <div key={cat} className="panel-c__section">
                 <div className={`panel-c__category-header panel-c__category-header--${cat}`}>
