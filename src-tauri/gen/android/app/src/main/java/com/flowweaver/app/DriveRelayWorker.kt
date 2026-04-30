@@ -45,6 +45,7 @@ import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -452,7 +453,7 @@ class DriveRelayWorker(
                     sub.indexOf('.').let { j -> if (j >= 0) exactLookup(sub.substring(j + 1)) else null }
                 } else null
             }
-            ?: "other"
+            ?: "otro"
     }
 
     private fun exactLookup(d: String): String? = when (d) {
@@ -463,32 +464,57 @@ class DriveRelayWorker(
         "hackerrank.com", "codewars.com", "rust-lang.org",
         "golang.org", "python.org", "developer.apple.com",
         "developer.android.com", "developer.mozilla.org",
-        "hub.docker.com", "registry.hub.docker.com" -> "development"
+        "hub.docker.com", "registry.hub.docker.com" -> "desarrollo"
 
         "notion.so", "notionhq.com", "obsidian.md", "roamresearch.com",
         "craft.do", "evernote.com", "onenote.com", "bear.app",
-        "logseq.com", "remnote.com", "workflowy.com" -> "notes"
+        "logseq.com", "remnote.com", "workflowy.com" -> "notas"
 
         "figma.com", "dribbble.com", "behance.net", "sketch.com",
         "invisionapp.com", "zeplin.io", "canva.com", "adobe.com",
         "framer.com", "webflow.com", "storybook.js.org",
-        "coolors.co", "fontawesome.com", "fonts.google.com" -> "design"
+        "coolors.co", "fontawesome.com", "fonts.google.com" -> "diseño"
 
-        "youtube.com", "youtu.be", "vimeo.com", "twitch.tv",
-        "netflix.com", "dailymotion.com", "wistia.com", "loom.com",
-        "screencast.com" -> "video"
+        "wistia.com", "loom.com", "screencast.com" -> "vídeo"
+
+        "imdb.com", "youtube.com", "youtu.be", "netflix.com",
+        "vimeo.com", "dailymotion.com", "hulu.com", "primevideo.com",
+        "disneyplus.com", "hbomax.com", "max.com", "appletv.com",
+        "crunchyroll.com", "funimation.com", "rottentomatoes.com",
+        "letterboxd.com", "themoviedb.org" -> "entretenimiento"
+
+        "store.steampowered.com", "steampowered.com", "twitch.tv",
+        "itch.io", "epicgames.com", "gog.com", "origin.com",
+        "xbox.com", "playstation.com", "nintendo.com",
+        "gamespot.com", "ign.com", "kotaku.com" -> "gaming"
+
+        "bbc.com", "bbc.co.uk", "elpais.com", "elmundo.es",
+        "reuters.com", "apnews.com", "theguardian.com",
+        "nytimes.com", "washingtonpost.com", "lemonde.fr",
+        "spiegel.de", "publico.es", "elconfidencial.com",
+        "lavanguardia.com", "20minutos.es" -> "noticias"
+
+        "coursera.org", "udemy.com", "edx.org", "khanacademy.org",
+        "pluralsight.com", "skillshare.com", "lynda.com",
+        "udacity.com", "freecodecamp.org",
+        "codecademy.com", "brilliant.org", "duolingo.com" -> "educación"
+
+        "spotify.com", "soundcloud.com", "bandcamp.com",
+        "music.apple.com", "tidal.com", "deezer.com",
+        "last.fm", "genius.com", "musixmatch.com",
+        "audiomack.com", "mixcloud.com" -> "música"
 
         "google.com", "airtable.com", "trello.com", "asana.com",
         "monday.com", "linear.app", "atlassian.com", "slack.com",
         "discord.com", "zoom.us", "microsoft.com", "office.com",
         "outlook.com", "clickup.com", "basecamp.com",
-        "todoist.com", "ticktick.com" -> "productivity"
+        "todoist.com", "ticktick.com" -> "productividad"
 
         "medium.com", "substack.com", "dev.to", "hashnode.com",
         "hackernoon.com", "techcrunch.com", "theverge.com",
         "wired.com", "news.ycombinator.com", "lobste.rs",
         "indiehackers.com", "smashingmagazine.com", "css-tricks.com",
-        "alistapart.com", "increment.com" -> "articles"
+        "alistapart.com", "increment.com" -> "artículos"
 
         "twitter.com", "x.com", "linkedin.com", "reddit.com",
         "facebook.com", "instagram.com", "pinterest.com",
@@ -496,13 +522,13 @@ class DriveRelayWorker(
 
         "amazon.com", "gumroad.com", "stripe.com", "shopify.com",
         "etsy.com", "ebay.com", "paypal.com", "paddle.com",
-        "lemonsqueezy.com", "revenuecat.com", "fastspring.com" -> "commerce"
+        "lemonsqueezy.com", "revenuecat.com", "fastspring.com" -> "comercio"
 
         "arxiv.org", "scholar.google.com", "pubmed.ncbi.nlm.nih.gov",
         "semanticscholar.org", "researchgate.net", "jstor.org",
         "ncbi.nlm.nih.gov", "nature.com", "science.org",
         "acm.org", "ieee.org", "springer.com", "wiley.com",
-        "sciencedirect.com", "plos.org" -> "research"
+        "sciencedirect.com", "plos.org" -> "investigación"
 
         else -> null
     }
@@ -551,9 +577,15 @@ class DriveRelayWorker(
 
     private fun writeDesktopAck(token: String, pairedDesktopId: String, eventId: String) {
         // Bug #1 fix: naming flat. Match desktop_acked() en drive_relay.rs.
+        // Bug #6 fix: check if ACK already exists before uploading to avoid duplicates.
+        // driveGetFileId now works correctly (Fix A), so this check is reliable.
         val ackName = RelayNaming.desktopAcked(pairedDesktopId, eventId)
-        val ackBody = """{"event_id":"$eventId","acked_at":${System.currentTimeMillis()}}"""
         try {
+            if (driveGetFileId(token, ackName) != null) {
+                Log.d(TAG, "ACK already exists for desktop event $eventId — skipping upload")
+                return
+            }
+            val ackBody = """{"event_id":"$eventId","acked_at":${System.currentTimeMillis()}}"""
             driveUploadOrUpdate(token, ackName, ackBody)
             Log.d(TAG, "ACK written for desktop event $eventId as $ackName")
         } catch (e: Exception) {
@@ -631,17 +663,29 @@ class DriveRelayWorker(
 
     /** Return the Drive file ID for a given flat name in AppData, or null if not found. */
     private fun driveGetFileId(token: String, name: String): String? {
-        val url  = "$DRIVE_FILES_URL?spaces=appDataFolder&fields=files(id,name)&q=name+'$name'+and+trashed=false"
-        val req  = Request.Builder()
+        // Bug #6 fix: build q with HttpUrl.Builder so addQueryParameter URL-encodes
+        // the value. Previous raw-string construction produced "name 'x'" (no operator),
+        // which Drive API rejected — causing driveUploadOrUpdate to always POST new files.
+        val url = DRIVE_FILES_URL.toHttpUrl().newBuilder()
+            .addQueryParameter("spaces", "appDataFolder")
+            .addQueryParameter("fields", "files(id,name)")
+            .addQueryParameter("q", "name = '$name' and trashed = false")
+            .build()
+        val req = Request.Builder()
             .url(url)
             .addHeader("Authorization", "Bearer $token")
             .get()
             .build()
-        http.newCall(req).execute().use { resp ->
-            if (!resp.isSuccessful) return null
-            val json  = JSONObject(resp.body!!.string())
-            val files = json.optJSONArray("files") ?: return null
-            return if (files.length() > 0) files.getJSONObject(0).optString("id") else null
+        return try {
+            http.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) return null
+                val json  = JSONObject(resp.body!!.string())
+                val files = json.optJSONArray("files") ?: return null
+                if (files.length() > 0) files.getJSONObject(0).optString("id") else null
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "driveGetFileId failed: ${e.message}")
+            null
         }
     }
 

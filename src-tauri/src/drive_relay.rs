@@ -370,10 +370,17 @@ pub async fn run_relay_cycle(
                             let _ = handle.emit("relay-event-imported", uuid);
                         }
                     }
-                    // Write ACK regardless (idempotent)
+                    // Write ACK only if it doesn't already exist (Bug #6 fix —
+                    // drive_upload always POSTs a new file; checking first prevents
+                    // duplicate ACK accumulation across loop iterations).
                     let ack_name = android_acked(&config.paired_android_id, &event.event_id);
-                    let ack_body = serde_json::json!({"acked_at": now_ms()}).to_string();
-                    let _ = drive_upload(&token, &ack_name, &ack_body).await;
+                    let ack_exists = drive_list_prefix(&token, &ack_name).await
+                        .map(|v| !v.is_empty())
+                        .unwrap_or(false);
+                    if !ack_exists {
+                        let ack_body = serde_json::json!({"acked_at": now_ms()}).to_string();
+                        let _ = drive_upload(&token, &ack_name, &ack_body).await;
+                    }
                 }
             }
         }
