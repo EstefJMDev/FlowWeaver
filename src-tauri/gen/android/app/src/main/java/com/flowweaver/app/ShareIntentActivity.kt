@@ -221,7 +221,7 @@ class ShareIntentActivity : Activity() {
                     sub.indexOf('.').let { j -> if (j >= 0) exactLookup(sub.substring(j + 1)) else null }
                 } else null
             }
-            ?: "other"
+            ?: "otro"
     }
 
     private fun exactLookup(d: String): String? = when (d) {
@@ -232,32 +232,57 @@ class ShareIntentActivity : Activity() {
         "hackerrank.com", "codewars.com", "rust-lang.org",
         "golang.org", "python.org", "developer.apple.com",
         "developer.android.com", "developer.mozilla.org",
-        "hub.docker.com", "registry.hub.docker.com" -> "development"
+        "hub.docker.com", "registry.hub.docker.com" -> "desarrollo"
 
         "notion.so", "notionhq.com", "obsidian.md", "roamresearch.com",
         "craft.do", "evernote.com", "onenote.com", "bear.app",
-        "logseq.com", "remnote.com", "workflowy.com" -> "notes"
+        "logseq.com", "remnote.com", "workflowy.com" -> "notas"
 
         "figma.com", "dribbble.com", "behance.net", "sketch.com",
         "invisionapp.com", "zeplin.io", "canva.com", "adobe.com",
         "framer.com", "webflow.com", "storybook.js.org",
-        "coolors.co", "fontawesome.com", "fonts.google.com" -> "design"
+        "coolors.co", "fontawesome.com", "fonts.google.com" -> "diseño"
 
-        "youtube.com", "youtu.be", "vimeo.com", "twitch.tv",
-        "netflix.com", "dailymotion.com", "wistia.com", "loom.com",
-        "screencast.com" -> "video"
+        "wistia.com", "loom.com", "screencast.com" -> "vídeo"
+
+        "imdb.com", "youtube.com", "youtu.be", "netflix.com",
+        "vimeo.com", "dailymotion.com", "hulu.com", "primevideo.com",
+        "disneyplus.com", "hbomax.com", "max.com", "appletv.com",
+        "crunchyroll.com", "funimation.com", "rottentomatoes.com",
+        "letterboxd.com", "themoviedb.org" -> "entretenimiento"
+
+        "store.steampowered.com", "steampowered.com", "twitch.tv",
+        "itch.io", "epicgames.com", "gog.com", "origin.com",
+        "xbox.com", "playstation.com", "nintendo.com",
+        "gamespot.com", "ign.com", "kotaku.com" -> "gaming"
+
+        "bbc.com", "bbc.co.uk", "elpais.com", "elmundo.es",
+        "reuters.com", "apnews.com", "theguardian.com",
+        "nytimes.com", "washingtonpost.com", "lemonde.fr",
+        "spiegel.de", "publico.es", "elconfidencial.com",
+        "lavanguardia.com", "20minutos.es" -> "noticias"
+
+        "coursera.org", "udemy.com", "edx.org", "khanacademy.org",
+        "pluralsight.com", "skillshare.com", "lynda.com",
+        "linkedin.com/learning", "udacity.com", "freecodecamp.org",
+        "codecademy.com", "brilliant.org", "duolingo.com" -> "educación"
+
+        "spotify.com", "soundcloud.com", "bandcamp.com",
+        "music.apple.com", "tidal.com", "deezer.com",
+        "last.fm", "genius.com", "musixmatch.com",
+        "audiomack.com", "mixcloud.com" -> "música"
 
         "google.com", "airtable.com", "trello.com", "asana.com",
         "monday.com", "linear.app", "atlassian.com", "slack.com",
         "discord.com", "zoom.us", "microsoft.com", "office.com",
         "outlook.com", "clickup.com", "basecamp.com",
-        "todoist.com", "ticktick.com" -> "productivity"
+        "todoist.com", "ticktick.com" -> "productividad"
 
         "medium.com", "substack.com", "dev.to", "hashnode.com",
         "hackernoon.com", "techcrunch.com", "theverge.com",
         "wired.com", "news.ycombinator.com", "lobste.rs",
         "indiehackers.com", "smashingmagazine.com", "css-tricks.com",
-        "alistapart.com", "increment.com" -> "articles"
+        "alistapart.com", "increment.com" -> "artículos"
 
         "twitter.com", "x.com", "linkedin.com", "reddit.com",
         "facebook.com", "instagram.com", "pinterest.com",
@@ -265,13 +290,13 @@ class ShareIntentActivity : Activity() {
 
         "amazon.com", "gumroad.com", "stripe.com", "shopify.com",
         "etsy.com", "ebay.com", "paypal.com", "paddle.com",
-        "lemonsqueezy.com", "revenuecat.com", "fastspring.com" -> "commerce"
+        "lemonsqueezy.com", "revenuecat.com", "fastspring.com" -> "comercio"
 
         "arxiv.org", "scholar.google.com", "pubmed.ncbi.nlm.nih.gov",
         "semanticscholar.org", "researchgate.net", "jstor.org",
         "ncbi.nlm.nih.gov", "nature.com", "science.org",
         "acm.org", "ieee.org", "springer.com", "wiley.com",
-        "sciencedirect.com", "plos.org" -> "research"
+        "sciencedirect.com", "plos.org" -> "investigación"
 
         else -> null
     }
