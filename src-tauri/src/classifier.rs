@@ -88,12 +88,17 @@ fn exact_lookup(d: &str) -> Option<&'static str> {
         // social
         "twitter.com" | "x.com" | "linkedin.com" | "reddit.com"
         | "facebook.com" | "instagram.com" | "pinterest.com"
-        | "mastodon.social" | "threads.net" | "bsky.app" => "social",
+        | "mastodon.social" | "threads.net" | "bsky.app"
+        | "tiktok.com" | "telegram.org" | "t.me" | "whatsapp.com"
+        | "snapchat.com" => "social",
 
         // comercio
         "amazon.com" | "gumroad.com" | "stripe.com" | "shopify.com"
         | "etsy.com" | "ebay.com" | "paypal.com" | "paddle.com"
-        | "lemonsqueezy.com" | "revenuecat.com" | "fastspring.com" => "comercio",
+        | "lemonsqueezy.com" | "revenuecat.com" | "fastspring.com"
+        | "milanuncios.com" | "wallapop.com" | "pccomponentes.com"
+        | "mediamarkt.es" | "fnac.es" | "elcorteingles.es"
+        | "zalando.es" | "shein.com" | "aliexpress.com" | "vinted.es" => "comercio",
 
         // investigación — note: scholar.google.com is listed here before google.com
         // so the exact match wins over the google.com → productividad fallback
@@ -109,7 +114,10 @@ fn exact_lookup(d: &str) -> Option<&'static str> {
         | "sensacine.com" | "trakt.tv" | "allocine.fr"
         | "youtube.com" | "youtu.be" | "netflix.com" | "vimeo.com"
         | "dailymotion.com" | "disneyplus.com" | "hbomax.com"
-        | "primevideo.com" | "crunchyroll.com" => "entretenimiento",
+        | "primevideo.com" | "crunchyroll.com"
+        | "fotogramas.es" | "espinof.com" | "cartelera.elpais.com"
+        | "elseptimoarte.net" | "culturagenial.com" | "ecartelera.com"
+        | "max.com" | "appletv.com" | "mubi.com" | "filmin.es" => "entretenimiento",
 
         // gaming
         "store.steampowered.com" | "epicgames.com" | "gog.com"
@@ -121,17 +129,41 @@ fn exact_lookup(d: &str) -> Option<&'static str> {
         "bbc.com" | "cnn.com" | "reuters.com" | "elpais.com"
         | "elmundo.es" | "theguardian.com" | "nytimes.com"
         | "washingtonpost.com" | "apnews.com" | "rtve.es"
-        | "20minutos.es" | "lavanguardia.com" | "abc.es" => "noticias",
+        | "20minutos.es" | "lavanguardia.com" | "abc.es"
+        | "elconfidencial.com" | "eldiario.es" | "publico.es"
+        | "expansion.com" | "eleconomista.es" | "cincodias.elpais.com"
+        | "invertia.com" | "periodistadigital.com" | "huffingtonpost.es"
+        | "vozpopuli.com" => "noticias",
 
         // educación
         "coursera.org" | "udemy.com" | "edx.org" | "khanacademy.org"
         | "udacity.com" | "skillshare.com" | "pluralsight.com"
-        | "codecademy.com" | "freecodecamp.org" | "domestika.org" => "educación",
+        | "codecademy.com" | "freecodecamp.org" | "domestika.org"
+        | "duolingo.com" | "brilliant.org" | "wolframalpha.com"
+        | "linguee.com" | "wordreference.com" | "rae.es" => "educación",
 
         // música
         "spotify.com" | "soundcloud.com" | "bandcamp.com"
         | "music.apple.com" | "deezer.com" | "tidal.com"
-        | "last.fm" | "genius.com" | "letras.com" => "música",
+        | "last.fm" | "genius.com" | "letras.com"
+        | "musixmatch.com" | "letras.mus.br" | "azlyrics.com"
+        | "shazam.com" => "música",
+
+        // deportes
+        "marca.com" | "as.com" | "sport.es" | "mundodeportivo.com"
+        | "relevo.com" | "goal.com" | "besoccer.com" | "eurosport.es"
+        | "espn.com" => "deportes",
+
+        // tecnología
+        "xataka.com" | "genbeta.com" | "hipertextual.com" | "applesfera.com"
+        | "andro4all.com" | "computerhoy.com" | "elotrolado.net" | "hardzone.es"
+        | "muycomputer.com" | "vidaextra.com" => "tecnología",
+
+        // cocina
+        "recetasdeescandalo.com" | "claudiaandjulia.com" | "canalcocina.es"
+        | "directoalpaladar.com" | "webosfritos.es" | "elcomidista.es"
+        | "petitchef.es" | "recetasgratis.net" | "pequerecetas.com"
+        | "cocinatis.com" => "cocina",
 
         _ => return None,
     })
@@ -162,5 +194,16 @@ mod tests {
         assert_eq!(classify("https://elpais.com/").category, "noticias");
         assert_eq!(classify("https://udemy.com/course/x").category, "educación");
         assert_eq!(classify("https://spotify.com/track/x").category, "música");
+        // Nuevas categorías
+        assert_eq!(classify("https://marca.com/futbol/").category, "deportes");
+        assert_eq!(classify("https://xataka.com/").category, "tecnología");
+        assert_eq!(classify("https://directoalpaladar.com/receta").category, "cocina");
+        // Entretenimiento ampliado
+        assert_eq!(classify("https://filmaffinity.com/es/film1.html").category, "entretenimiento");
+        assert_eq!(classify("https://fotogramas.es/peliculas/").category, "entretenimiento");
+        // Noticias ES ampliado
+        assert_eq!(classify("https://elconfidencial.com/").category, "noticias");
+        // Comercio ES
+        assert_eq!(classify("https://wallapop.com/item/x").category, "comercio");
     }
 }
