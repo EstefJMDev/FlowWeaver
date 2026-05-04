@@ -249,7 +249,11 @@ class ShareIntentActivity : Activity() {
         "vimeo.com", "dailymotion.com", "hulu.com", "primevideo.com",
         "disneyplus.com", "hbomax.com", "max.com", "appletv.com",
         "crunchyroll.com", "funimation.com", "rottentomatoes.com",
-        "letterboxd.com", "themoviedb.org" -> "entretenimiento"
+        "letterboxd.com", "themoviedb.org",
+        "filmaffinity.com", "sensacine.com", "fotogramas.es",
+        "espinof.com", "cartelera.elpais.com", "elseptimoarte.net",
+        "culturagenial.com", "ecartelera.com", "mubi.com",
+        "filmin.es" -> "entretenimiento"
 
         "store.steampowered.com", "steampowered.com", "twitch.tv",
         "itch.io", "epicgames.com", "gog.com", "origin.com",
@@ -260,17 +264,23 @@ class ShareIntentActivity : Activity() {
         "reuters.com", "apnews.com", "theguardian.com",
         "nytimes.com", "washingtonpost.com", "lemonde.fr",
         "spiegel.de", "publico.es", "elconfidencial.com",
-        "lavanguardia.com", "20minutos.es" -> "noticias"
+        "lavanguardia.com", "20minutos.es",
+        "eldiario.es", "expansion.com", "eleconomista.es",
+        "cincodias.elpais.com", "invertia.com", "periodistadigital.com",
+        "huffingtonpost.es", "vozpopuli.com" -> "noticias"
 
         "coursera.org", "udemy.com", "edx.org", "khanacademy.org",
         "pluralsight.com", "skillshare.com", "lynda.com",
         "linkedin.com/learning", "udacity.com", "freecodecamp.org",
-        "codecademy.com", "brilliant.org", "duolingo.com" -> "educación"
+        "codecademy.com", "brilliant.org", "duolingo.com",
+        "wolframalpha.com", "linguee.com", "wordreference.com",
+        "rae.es" -> "educación"
 
         "spotify.com", "soundcloud.com", "bandcamp.com",
         "music.apple.com", "tidal.com", "deezer.com",
         "last.fm", "genius.com", "musixmatch.com",
-        "audiomack.com", "mixcloud.com" -> "música"
+        "audiomack.com", "mixcloud.com",
+        "letras.mus.br", "azlyrics.com", "shazam.com" -> "música"
 
         "google.com", "airtable.com", "trello.com", "asana.com",
         "monday.com", "linear.app", "atlassian.com", "slack.com",
@@ -286,17 +296,35 @@ class ShareIntentActivity : Activity() {
 
         "twitter.com", "x.com", "linkedin.com", "reddit.com",
         "facebook.com", "instagram.com", "pinterest.com",
-        "mastodon.social", "threads.net", "bsky.app" -> "social"
+        "mastodon.social", "threads.net", "bsky.app",
+        "tiktok.com", "telegram.org", "t.me", "whatsapp.com",
+        "snapchat.com" -> "social"
 
         "amazon.com", "gumroad.com", "stripe.com", "shopify.com",
         "etsy.com", "ebay.com", "paypal.com", "paddle.com",
-        "lemonsqueezy.com", "revenuecat.com", "fastspring.com" -> "comercio"
+        "lemonsqueezy.com", "revenuecat.com", "fastspring.com",
+        "milanuncios.com", "wallapop.com", "pccomponentes.com",
+        "mediamarkt.es", "fnac.es", "elcorteingles.es",
+        "zalando.es", "shein.com", "aliexpress.com", "vinted.es" -> "comercio"
 
         "arxiv.org", "scholar.google.com", "pubmed.ncbi.nlm.nih.gov",
         "semanticscholar.org", "researchgate.net", "jstor.org",
         "ncbi.nlm.nih.gov", "nature.com", "science.org",
         "acm.org", "ieee.org", "springer.com", "wiley.com",
         "sciencedirect.com", "plos.org" -> "investigación"
+
+        "marca.com", "as.com", "sport.es", "mundodeportivo.com",
+        "relevo.com", "goal.com", "besoccer.com", "eurosport.es",
+        "espn.com" -> "deportes"
+
+        "xataka.com", "genbeta.com", "hipertextual.com", "applesfera.com",
+        "andro4all.com", "computerhoy.com", "elotrolado.net", "hardzone.es",
+        "muycomputer.com", "vidaextra.com" -> "tecnología"
+
+        "recetasdeescandalo.com", "claudiaandjulia.com", "canalcocina.es",
+        "directoalpaladar.com", "webosfritos.es", "elcomidista.es",
+        "petitchef.es", "recetasgratis.net", "pequerecetas.com",
+        "cocinatis.com" -> "cocina"
 
         else -> null
     }
