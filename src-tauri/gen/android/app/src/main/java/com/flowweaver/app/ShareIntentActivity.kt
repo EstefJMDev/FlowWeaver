@@ -232,7 +232,13 @@ class ShareIntentActivity : Activity() {
         "hackerrank.com", "codewars.com", "rust-lang.org",
         "golang.org", "python.org", "developer.apple.com",
         "developer.android.com", "developer.mozilla.org",
-        "hub.docker.com", "registry.hub.docker.com" -> "desarrollo"
+        "hub.docker.com", "registry.hub.docker.com",
+        "vercel.com", "netlify.com", "supabase.com", "cloudflare.com",
+        "digitalocean.com", "railway.app", "render.com", "fly.io",
+        "heroku.com", "gitbook.com", "swagger.io", "developer.chrome.com",
+        "web.dev", "caniuse.com", "bundlephobia.com", "packagephobia.com",
+        "regex101.com", "regexr.com", "devdocs.io", "roadmap.sh",
+        "excalidraw.com", "dbdiagram.io", "drawio.com" -> "desarrollo"
 
         "notion.so", "notionhq.com", "obsidian.md", "roamresearch.com",
         "craft.do", "evernote.com", "onenote.com", "bear.app",
@@ -253,12 +259,25 @@ class ShareIntentActivity : Activity() {
         "filmaffinity.com", "sensacine.com", "fotogramas.es",
         "espinof.com", "cartelera.elpais.com", "elseptimoarte.net",
         "culturagenial.com", "ecartelera.com", "mubi.com",
-        "filmin.es" -> "entretenimiento"
+        "filmin.es",
+        "atresplayer.com", "mitele.es", "movistarplus.es",
+        "plex.tv", "stremio.com", "cuevana.io", "cuevana3.io",
+        "pelisplus.io", "repelis.tv", "telecinco.es",
+        "antena3.com", "cuatro.com", "lasexta.com",
+        "clan.rtve.es", "playz.es", "dazn.com", "rakuten.tv",
+        "pluto.tv", "tubi.tv", "paramount.plus" -> "entretenimiento"
 
         "store.steampowered.com", "steampowered.com", "twitch.tv",
         "itch.io", "epicgames.com", "gog.com", "origin.com",
         "xbox.com", "playstation.com", "nintendo.com",
-        "gamespot.com", "ign.com", "kotaku.com" -> "gaming"
+        "gamespot.com", "ign.com", "kotaku.com",
+        "3djuegos.com", "vandal.net", "meristation.com",
+        "hobbyconsolas.com", "metacritic.com", "steamcommunity.com",
+        "ea.com", "ubisoft.com", "riotgames.com", "blizzard.com",
+        "areajugones.com", "g2a.com", "cdkeys.com",
+        "isthereanydeal.com", "pcgamer.com", "rockpapershotgun.com",
+        "eurogamer.net", "igdb.com", "rawg.io",
+        "howlongtobeat.com" -> "gaming"
 
         "bbc.com", "bbc.co.uk", "elpais.com", "elmundo.es",
         "reuters.com", "apnews.com", "theguardian.com",
@@ -267,26 +286,43 @@ class ShareIntentActivity : Activity() {
         "lavanguardia.com", "20minutos.es",
         "eldiario.es", "expansion.com", "eleconomista.es",
         "cincodias.elpais.com", "invertia.com", "periodistadigital.com",
-        "huffingtonpost.es", "vozpopuli.com" -> "noticias"
+        "huffingtonpost.es", "vozpopuli.com",
+        "elespanol.com", "okdiario.com", "infolibre.es",
+        "elindependiente.com", "europapress.es", "agenciaefe.com",
+        "voz.us", "actualidad.rt.com", "infobae.com",
+        "elperiodico.com", "ara.cat", "naciodigital.cat",
+        "diariovasco.com", "elcorreo.com", "hoy.es" -> "noticias"
 
         "coursera.org", "udemy.com", "edx.org", "khanacademy.org",
         "pluralsight.com", "skillshare.com", "lynda.com",
         "linkedin.com/learning", "udacity.com", "freecodecamp.org",
         "codecademy.com", "brilliant.org", "duolingo.com",
         "wolframalpha.com", "linguee.com", "wordreference.com",
-        "rae.es" -> "educación"
+        "rae.es",
+        "deepl.com", "fundeu.es", "merriam-webster.com",
+        "cambridge.org", "babbel.com", "busuu.com",
+        "classgap.com", "superprof.es", "mit.edu", "stanford.edu",
+        "coursehero.com", "quizlet.com" -> "educación"
 
         "spotify.com", "soundcloud.com", "bandcamp.com",
         "music.apple.com", "tidal.com", "deezer.com",
         "last.fm", "genius.com", "musixmatch.com",
         "audiomack.com", "mixcloud.com",
-        "letras.mus.br", "azlyrics.com", "shazam.com" -> "música"
+        "letras.mus.br", "azlyrics.com", "shazam.com",
+        "beatport.com", "songkick.com", "setlist.fm",
+        "discogs.com", "letssingit.com", "lyrics.com",
+        "musica.com" -> "música"
 
         "google.com", "airtable.com", "trello.com", "asana.com",
         "monday.com", "linear.app", "atlassian.com", "slack.com",
         "discord.com", "zoom.us", "microsoft.com", "office.com",
         "outlook.com", "clickup.com", "basecamp.com",
-        "todoist.com", "ticktick.com" -> "productividad"
+        "todoist.com", "ticktick.com",
+        "dropbox.com", "box.com", "wetransfer.com", "scribd.com",
+        "issuu.com", "slideshare.net", "miro.com", "mural.co",
+        "calendly.com", "doodle.com", "typeform.com", "jotform.com",
+        "zapier.com", "make.com", "n8n.io", "reclaim.ai",
+        "clockify.com", "toggl.com", "harvest.com" -> "productividad"
 
         "medium.com", "substack.com", "dev.to", "hashnode.com",
         "hackernoon.com", "techcrunch.com", "theverge.com",
@@ -298,33 +334,134 @@ class ShareIntentActivity : Activity() {
         "facebook.com", "instagram.com", "pinterest.com",
         "mastodon.social", "threads.net", "bsky.app",
         "tiktok.com", "telegram.org", "t.me", "whatsapp.com",
-        "snapchat.com" -> "social"
+        "snapchat.com",
+        "kick.com", "tumblr.com", "flickr.com", "vk.com",
+        "meetup.com", "nextdoor.com" -> "social"
 
         "amazon.com", "gumroad.com", "stripe.com", "shopify.com",
         "etsy.com", "ebay.com", "paypal.com", "paddle.com",
         "lemonsqueezy.com", "revenuecat.com", "fastspring.com",
         "milanuncios.com", "wallapop.com", "pccomponentes.com",
         "mediamarkt.es", "fnac.es", "elcorteingles.es",
-        "zalando.es", "shein.com", "aliexpress.com", "vinted.es" -> "comercio"
+        "zalando.es", "shein.com", "aliexpress.com", "vinted.es",
+        "amazon.es", "temu.com", "privalia.com", "zara.com",
+        "mango.com", "asos.com", "decathlon.es", "leroy-merlin.es",
+        "ikea.com", "carrefour.es", "mercadona.es", "lidl.es",
+        "dia.es", "hipercor.es", "primor.com", "druni.es",
+        "sephora.es", "sprinter.es", "jdsports.es", "footlocker.es",
+        "game.es", "worten.es", "coolmod.com", "ldlc.com",
+        "alternate.es", "bargento.es" -> "comercio"
 
         "arxiv.org", "scholar.google.com", "pubmed.ncbi.nlm.nih.gov",
         "semanticscholar.org", "researchgate.net", "jstor.org",
         "ncbi.nlm.nih.gov", "nature.com", "science.org",
         "acm.org", "ieee.org", "springer.com", "wiley.com",
-        "sciencedirect.com", "plos.org" -> "investigación"
+        "sciencedirect.com", "plos.org",
+        "dialnet.unirioja.es", "redalyc.org", "scielo.org",
+        "ssrn.com", "biorxiv.org", "medrxiv.org",
+        "philpapers.org", "plato.stanford.edu",
+        "worldcat.org", "europeana.eu" -> "investigación"
 
         "marca.com", "as.com", "sport.es", "mundodeportivo.com",
         "relevo.com", "goal.com", "besoccer.com", "eurosport.es",
-        "espn.com" -> "deportes"
+        "espn.com",
+        "transfermarkt.es", "sofascore.com", "flashscore.es",
+        "soccerway.com", "resultados-futbol.com",
+        "estadiodeportivo.com", "superdeporte.es", "vavel.com",
+        "sportytrader.es", "todo-lineas.com", "bein.com",
+        "diariogol.com", "futbolme.com", "laliga.com",
+        "rfef.es", "motogp.com", "formula1.com",
+        "nba.com", "nfl.com" -> "deportes"
 
         "xataka.com", "genbeta.com", "hipertextual.com", "applesfera.com",
         "andro4all.com", "computerhoy.com", "elotrolado.net", "hardzone.es",
-        "muycomputer.com", "vidaextra.com" -> "tecnología"
+        "muycomputer.com", "vidaextra.com",
+        "adslzone.net", "bandaancha.eu", "redeszone.net",
+        "arstechnica.com", "tomshardware.com", "gsmarena.com",
+        "notebookcheck.net", "rtings.com", "9to5mac.com",
+        "9to5google.com", "androidpolice.com", "macrumors.com",
+        "slashgear.com", "techradar.com" -> "tecnología"
 
         "recetasdeescandalo.com", "claudiaandjulia.com", "canalcocina.es",
         "directoalpaladar.com", "webosfritos.es", "elcomidista.es",
         "petitchef.es", "recetasgratis.net", "pequerecetas.com",
-        "cocinatis.com" -> "cocina"
+        "cocinatis.com",
+        "tasty.co", "allrecipes.com", "bbcgoodfood.com",
+        "cookpad.com", "nestlecocina.es", "recetario.es",
+        "hogarmania.com", "mundorecetas.com", "recetasderechupete.com",
+        "cocina-casera.com", "mis-recetas.es", "kiwilimon.com",
+        "bonviveur.es" -> "cocina"
+
+        "boe.es", "gob.es", "agenciatributaria.gob.es",
+        "sede.agenciatributaria.gob.es", "seg-social.es",
+        "importass.seg-social.es", "mjusticia.gob.es", "europa.eu",
+        "ine.es", "ipyme.org", "sepe.gob.es", "dgt.es",
+        "map.gob.es", "hacienda.gob.es", "mites.gob.es",
+        "exteriores.gob.es", "interior.gob.es", "congreso.es",
+        "senado.es", "poderjudicial.es", "notariado.org",
+        "registradores.org", "administracion.gob.es", "sede.gob.es",
+        "correos.es", "catastro.meh.es", "juntadeandalucia.es",
+        "gencat.cat", "madrid.org", "comunidad.madrid" -> "gobierno"
+
+        "sanidad.gob.es", "aemps.gob.es", "who.int", "cdc.gov",
+        "ecdc.europa.eu", "webconsultas.com", "mayoclinic.org",
+        "healthline.com", "medlineplus.gov", "doctoralia.es",
+        "tuotromedico.com", "saludemia.com", "medscape.com",
+        "infosalus.com", "consumer.es", "cinfasalud.com",
+        "farmacias.com", "elmedicointeractivo.com", "diarioenfermero.es",
+        "redaccionmedica.com", "semfyc.es", "fisterra.com",
+        "salusplanet.net", "iqb.es", "vademecum.es",
+        "farmaceuticos.com", "cofm.es" -> "salud"
+
+        "booking.com", "airbnb.com", "airbnb.es",
+        "tripadvisor.com", "tripadvisor.es",
+        "skyscanner.es", "skyscanner.com",
+        "renfe.com", "aena.es", "iberia.com",
+        "rome2rio.com", "kayak.es", "kayak.com",
+        "civitatis.com", "expedia.es", "expedia.com",
+        "hotels.com", "edreams.es", "rumbo.es",
+        "logitravel.com", "ryanair.com", "vueling.com",
+        "easyjet.com", "alsa.es", "blablacar.es",
+        "ouigo.es", "flixbus.es", "interrail.eu",
+        "viajalagoaspana.info", "toprural.com",
+        "rusticae.es", "paradores.es", "lowcostviajes.es",
+        "despegar.com", "travelgenio.com", "atrapalo.com" -> "viajes"
+
+        "ing.es", "bbva.es", "santander.es", "caixabank.es",
+        "bankinter.com", "sabadell.com", "unicaja.es",
+        "openbank.es", "myinvestor.es", "indexacapital.com",
+        "finizens.com", "coinbase.com", "binance.com", "kraken.com",
+        "investing.com", "morningstar.com", "rankia.com", "finect.com",
+        "revolut.com", "n26.com", "wise.com", "transferwise.com",
+        "bnpparibas.es", "ibercaja.es", "kutxabank.es",
+        "abanca.com", "triodos.es", "selfbank.es", "degiro.es",
+        "interactive-brokers.com", "etoro.com",
+        "expansiondirecto.com" -> "finanzas"
+
+        "idealista.com", "fotocasa.es", "habitaclia.com", "pisos.com",
+        "yaencontre.com", "housfy.com", "servihabitat.com", "solvia.es",
+        "enalquiler.com", "alquiler.net", "casaktua.com", "donpiso.com",
+        "remax.es", "century21.es", "api.es", "tecnocasa.es",
+        "inmopc.com", "segundamano.es" -> "inmobiliario"
+
+        "claude.ai", "chat.openai.com", "chatgpt.com",
+        "perplexity.ai", "midjourney.com", "huggingface.co",
+        "replicate.com", "gemini.google.com", "copilot.microsoft.com",
+        "cursor.sh", "v0.dev", "bolt.new", "gamma.app",
+        "elevenlabs.io", "runway.ml", "suno.ai", "udio.com",
+        "stability.ai", "leonardo.ai", "poe.com", "character.ai",
+        "groq.com", "mistral.ai", "cohere.com", "together.ai",
+        "fireworks.ai", "notdiamond.ai", "krea.ai",
+        "ideogram.ai" -> "IA"
+
+        "nationalgeographic.com", "ted.com", "quantamagazine.org",
+        "scientificamerican.com", "naukas.com", "microsiervos.com",
+        "muyinteresante.es", "investigacionyciencia.es",
+        "space.com", "livescience.com", "bbcearth.com",
+        "newscientist.com", "agenciasinc.es", "tendencias21.net",
+        "madrimasd.org", "csic.es", "nasa.gov", "esa.int",
+        "nhm.ac.uk", "smithsonianmag.com", "discovermagazine.com",
+        "popularmechanics.com" -> "ciencia"
 
         else -> null
     }
