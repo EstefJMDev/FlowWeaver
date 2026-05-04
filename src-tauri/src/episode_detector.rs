@@ -38,20 +38,26 @@ pub struct Episode {
 
 /// Detect episodes within a session.
 /// Returns an empty vec if no actionable group is found.
-/// Tries precise mode first; falls back to broad mode.
+///
+/// H-005: Precise y Broad coexisten. Broad corre sobre el residuo que
+/// Precise no asigna (no como fallback exclusivo). Si Precise no detecta
+/// nada, Broad recibe todos los recursos — comportamiento previo.
 pub fn detect(session: &Session) -> Vec<Episode> {
-    let precise = detect_precise(&session.resources);
-    if !precise.is_empty() {
-        return precise;
-    }
-    detect_broad(&session.resources)
+    let (mut episodes, unassigned) = detect_precise(&session.resources);
+    let broad_input: &[SessionResource] = if episodes.is_empty() {
+        &session.resources
+    } else {
+        &unassigned
+    };
+    episodes.extend(detect_broad(broad_input));
+    episodes
 }
 
 // ── Precise mode (Jaccard) ────────────────────────────────────────────────────
 
-fn detect_precise(resources: &[SessionResource]) -> Vec<Episode> {
+fn detect_precise(resources: &[SessionResource]) -> (Vec<Episode>, Vec<SessionResource>) {
     if resources.len() < PRECISE_MIN {
-        return Vec::new();
+        return (Vec::new(), resources.to_vec());
     }
 
     let tokenized: Vec<Vec<String>> = resources.iter().map(|r| tokenize_resource(r)).collect();
@@ -101,7 +107,14 @@ fn detect_precise(resources: &[SessionResource]) -> Vec<Episode> {
         });
     }
 
-    episodes
+    // H-005: residuo no asignado, para que detect() pueda lanzar Broad sobre él.
+    let unassigned: Vec<SessionResource> = resources
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| !assigned[*i])
+        .map(|(_, r)| r.clone())
+        .collect();
+    (episodes, unassigned)
 }
 
 // ── Broad mode (category fallback) ───────────────────────────────────────────
@@ -354,6 +367,32 @@ mod tests {
         assert_eq!(domain_stem("store.steampowered.com"), Some("steampowered".to_string()));
         assert_eq!(domain_stem("music.apple.com"), Some("apple".to_string()));
         assert_eq!(domain_stem("youtu.be"), Some("youtu".to_string()));
+    }
+
+    /// H-005: Precise y Broad deben coexistir en la misma sesión cuando
+    /// Precise solo cubre un subconjunto. Broad recibe el residuo y agrupa
+    /// por categoría compartida lo que Precise no asignó.
+    #[test]
+    fn precise_and_broad_coexist_in_same_session() {
+        // 3 share.google → Precise via domain stem + URL tokens.
+        // 4 títulos en categoría "other" sin tokens dominantes compartidos
+        //   (jaccard < 0.20 entre pares) → no forman Precise pero sí Broad
+        //   por categoría. H-005: ambos modos deben coexistir.
+        let session = make_session(vec![
+            make_res_with_url("", "share.google", "https://share.google/weather/1", "otro"),
+            make_res_with_url("", "share.google", "https://share.google/weather/2", "otro"),
+            make_res_with_url("", "share.google", "https://share.google/weather/3", "otro"),
+            make_res("Hereditary análisis simbolismo", "other"),
+            make_res("Conjuring origen warrens caso", "other"),
+            make_res("Sinister crítica pentagrama", "other"),
+            make_res("Babadook depresión maternal", "other"),
+        ]);
+        let episodes = detect(&session);
+        assert!(episodes.len() >= 2, "debe haber al menos un episodio Precise y uno Broad");
+        let precise_eps: Vec<_> = episodes.iter().filter(|e| e.mode == DetectionMode::Precise).collect();
+        let broad_eps: Vec<_> = episodes.iter().filter(|e| e.mode == DetectionMode::Broad).collect();
+        assert!(!precise_eps.is_empty(), "debe haber episodio Precise (share.google)");
+        assert!(!broad_eps.is_empty(), "debe haber episodio Broad (películas de terror — category other)");
     }
 
     #[test]
