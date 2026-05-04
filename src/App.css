@@ -43,7 +43,7 @@ body { min-height: 100vh; }
   display: flex;
   flex-direction: column;
   height: 100vh;
-  overflow: hidden;
+  overflow-y: auto;
 }
 
 .workspace--center {
@@ -73,6 +73,7 @@ body { min-height: 100vh; }
   display: flex;
   flex: 1;
   overflow: hidden;
+  min-height: 0;
 }
 
 /* ── Onboarding / empty state ──────────────────────────────────────────────── */
@@ -417,6 +418,8 @@ body { min-height: 100vh; }
   border-bottom: 1px solid #2a3a5a;
   padding: 10px 16px 12px;
   flex-shrink: 0;
+  max-height: 40vh;
+  overflow-y: auto;
 }
 
 .episode-panel__header {
@@ -680,6 +683,8 @@ body { min-height: 100vh; }
   border-bottom: 1px solid #2a4a2a;
   padding: 10px 16px 12px;
   flex-shrink: 0;
+  max-height: 30vh;
+  overflow-y: auto;
 }
 
 .anticipated-workspace__badge-row {
