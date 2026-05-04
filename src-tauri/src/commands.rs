@@ -250,7 +250,7 @@ pub fn add_capture(
     let key = db_key(&app);
     let db = state.0.lock().map_err(|e| e.to_string())?;
 
-    let classified = classifier::classify(&url);
+    let classified = classifier::classify(&url, if title.is_empty() { None } else { Some(&title) });
     let uuid = Uuid::new_v5(&Uuid::NAMESPACE_URL, url.as_bytes()).to_string();
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

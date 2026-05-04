@@ -187,7 +187,8 @@ fn tokenize_resource(r: &SessionResource) -> Vec<String> {
 
 /// Extract meaningful tokens from a URL path+query string.
 /// Skips scheme, host, and common noise tokens. No network access (D8).
-fn extract_url_tokens(url: &str) -> Vec<String> {
+/// pub(crate): reutilizada por classifier::Capa A.3 (T-3-006).
+pub(crate) fn extract_url_tokens(url: &str) -> Vec<String> {
     if url.is_empty() {
         return Vec::new();
     }
@@ -223,7 +224,10 @@ fn domain_stem(domain: &str) -> Option<String> {
     }
 }
 
-fn tokenize(title: &str) -> Vec<String> {
+/// Tokeniza un título descomponiendo por no-alfanuméricos. Filtra stopwords
+/// ES + EN, TLDs y números puros. pub(crate): reutilizada por
+/// classifier::Capa A.3 (T-3-006).
+pub(crate) fn tokenize(title: &str) -> Vec<String> {
     const STOPWORDS: &[&str] = &[
         "the", "and", "for", "are", "but", "not", "you", "all",
         "can", "has", "her", "was", "one", "our", "out", "day",

@@ -93,8 +93,12 @@ class ShareIntentActivity : Activity() {
         val capturedAt = System.currentTimeMillis()
 
         // Extract domain and classify — deterministic, same table as Rust (D8, R12).
-        val domain   = extractDomain(rawText)
-        val category = classifyDomain(domain)
+        // Capa A (T-3-006): la clasificación recibe path_tokens y title_tokens
+        // recibidos en claro upstream del cifrado (D1, PG-A1..PG-A6).
+        val domain      = extractDomain(rawText)
+        val pathTokens  = extractUrlTokens(rawText)
+        val titleTokens = tokenizeTitle(titleRaw)
+        val category    = classifyDomain(domain, pathTokens, titleTokens)
 
         // ── Bug #3 fix (sesión 2026-04-30) ───────────────────────────────────────
         // Separar cifrado de tránsito (Drive, descifrable por desktop con
@@ -210,8 +214,16 @@ class ShareIntentActivity : Activity() {
     }
 
     // ── Deterministic domain classifier (D8, R12) ────────────────────────────────
+    // Capa A (T-3-006, CR-004): seis pasos en orden cuando exact_lookup devuelve
+    // null — exact (3 niveles) → tld_inference → subdomain_inference →
+    // keyword_inference → "otro". Determinístico (D8). Diccionarios estáticos
+    // y públicos auditables (PG-A1..PG-A5).
 
-    private fun classifyDomain(domain: String): String {
+    private fun classifyDomain(
+        domain: String,
+        pathTokens: List<String>,
+        titleTokens: List<String>,
+    ): String {
         val d = domain.lowercase()
         return exactLookup(d)
             ?: d.indexOf('.').let { if (it >= 0) exactLookup(d.substring(it + 1)) else null }
@@ -221,7 +233,147 @@ class ShareIntentActivity : Activity() {
                     sub.indexOf('.').let { j -> if (j >= 0) exactLookup(sub.substring(j + 1)) else null }
                 } else null
             }
+            ?: tldInference(d)
+            ?: subdomainInference(d)
+            ?: keywordInference(pathTokens, titleTokens)
             ?: "otro"
+    }
+
+    // ── Capa A.1 — TLD Inference (T-3-006) ───────────────────────────────────
+
+    /** Tabla TLD ordenada de más específico a menos específico. ≤30 entradas. */
+    private val TLD_INFERENCE: List<Pair<String, String>> = listOf(
+        ".gob.es"   to "gobierno",
+        ".gov.uk"   to "gobierno",
+        ".gov.fr"   to "gobierno",
+        ".gov"      to "gobierno",
+        ".ac.uk"    to "educación",
+        ".ac.jp"    to "educación",
+        ".edu.es"   to "educación",
+        ".edu"      to "educación",
+    )
+
+    private fun tldInference(domain: String): String? {
+        for ((suffix, category) in TLD_INFERENCE) {
+            if (domain.endsWith(suffix)) return category
+        }
+        return null
+    }
+
+    // ── Capa A.2 — Subdomain Inference (T-3-006) ─────────────────────────────
+
+    /** Tabla de prefijos de subdominio. ≤10 entradas. */
+    private val SUBDOMAIN_INFERENCE: List<Pair<String, String>> = listOf(
+        "tienda."    to "comercio",
+        "shop."      to "comercio",
+        "store."     to "comercio",
+        "blog."      to "artículos",
+        "api."       to "desarrollo",
+        "developer." to "desarrollo",
+        "dev."       to "desarrollo",
+        "docs."      to "educación",
+        "wiki."      to "educación",
+    )
+
+    private fun subdomainInference(domain: String): String? {
+        for ((prefix, category) in SUBDOMAIN_INFERENCE) {
+            if (domain.startsWith(prefix)) return category
+        }
+        return null
+    }
+
+    // ── Capa A.3 — Keyword Inference (T-3-006) ───────────────────────────────
+
+    /** Diccionario estático y público (PG-A1, PG-A5). Idiomas: ES (PG-A3).
+     *  Sin nombres propios ni sub-especialidades médicas (PG-A2).
+     *  Cota dura: ≤200 entradas en total. */
+    private val KEYWORD_INFERENCE: List<Pair<String, List<String>>> = listOf(
+        "cocina" to listOf(
+            "receta", "recetas", "ingredientes", "cocinar", "plato",
+            "horno", "guiso", "postre", "tapa", "menu",
+        ),
+        "deportes" to listOf(
+            "partido", "gol", "liga", "futbol", "baloncesto",
+            "tenis", "formula1", "motogp", "marcador", "resultado",
+        ),
+        "entretenimiento" to listOf(
+            "pelicula", "peliculas", "serie", "series", "episodio",
+            "temporada", "capitulo", "reparto", "estreno", "sinopsis",
+        ),
+        "gobierno" to listOf(
+            "ley", "decreto", "boe", "resolucion",
+            "tramite", "expediente", "boja", "doe",
+        ),
+        "salud" to listOf(
+            "sintoma", "tratamiento", "consulta", "clinica",
+            "diagnostico", "farmacia", "vacuna",
+        ),
+    )
+
+    private fun keywordInference(
+        pathTokens: List<String>,
+        titleTokens: List<String>,
+    ): String? {
+        val allTokens: Set<String> = (pathTokens + titleTokens).toSet()
+        if (allTokens.isEmpty()) return null
+        val scores = KEYWORD_INFERENCE
+            .mapNotNull { (cat, kws) ->
+                val count = kws.count { it in allTokens }
+                if (count > 0) cat to count else null
+            }
+            .sortedWith(compareByDescending<Pair<String, Int>> { it.second }.thenBy { it.first })
+        if (scores.isEmpty()) return null
+        val (bestCat, bestCount) = scores[0]
+        if (bestCount < 2) return null
+        if (scores.size >= 2 && scores[0].second == scores[1].second) return null
+        return bestCat
+    }
+
+    // ── Tokenización (paridad con episode_detector.rs::extract_url_tokens / tokenize) ───
+
+    /** path/query tokens; longitud ≥3, sin TLDs ni numéricos puros ni utm_/fbclid/gclid. */
+    private fun extractUrlTokens(url: String): List<String> {
+        if (url.isEmpty()) return emptyList()
+        val pathStart = url.indexOf("://").let { if (it >= 0) {
+            val afterScheme = url.substring(it + 3)
+            val slash = afterScheme.indexOf('/')
+            if (slash >= 0) afterScheme.substring(slash) else ""
+        } else url }
+        val noise = setOf("www", "com", "html", "php", "htm", "asp", "aspx", "jsp", "org", "net")
+        return pathStart.split('/', '?', '&', '=', '#')
+            .filter { it.length >= 3 }
+            .map { it.lowercase() }
+            .filter { t -> t !in noise
+                && !t.startsWith("utm_")
+                && !t.startsWith("fbclid")
+                && !t.startsWith("gclid")
+                && !t.all { it.isDigit() }
+            }
+    }
+
+    /** title tokens; descomposición por no-alfanuméricos + filtros de stopwords ES+EN+TLDs. */
+    private fun tokenizeTitle(title: String): List<String> {
+        if (title.isEmpty()) return emptyList()
+        val stopwords = setOf(
+            "the", "and", "for", "are", "but", "not", "you", "all",
+            "can", "has", "her", "was", "one", "our", "out", "day",
+            "get", "how", "its", "let", "now", "old", "see", "two",
+            "way", "who", "ask", "him", "his", "did", "yes", "off",
+            "ago", "won", "use", "new", "may", "able", "about", "after",
+            "also", "back", "been", "both", "come", "does", "each",
+            "even", "from", "gave", "give", "going", "good", "have",
+            "here", "into", "just", "know", "like", "made", "make",
+            "more", "most", "much", "must", "need", "next", "only",
+            "other", "over", "part", "same", "some", "such", "take",
+            "than", "that", "them", "then", "there", "these", "they",
+            "this", "time", "very", "want", "well", "were", "what",
+            "when", "will", "with", "your",
+            "com", "net", "org", "www", "edu", "gov", "io", "app", "dev",
+        )
+        return title.split(Regex("[^A-Za-z0-9]+"))
+            .filter { it.length >= 3 }
+            .map { it.lowercase() }
+            .filter { t -> t !in stopwords && !t.all { c -> c.isDigit() } }
     }
 
     private fun exactLookup(d: String): String? = when (d) {
@@ -251,26 +403,31 @@ class ShareIntentActivity : Activity() {
 
         "wistia.com", "loom.com", "screencast.com" -> "vídeo"
 
-        "imdb.com", "youtube.com", "youtu.be", "netflix.com",
-        "vimeo.com", "dailymotion.com", "hulu.com", "primevideo.com",
+        // Entretenimiento residuo: portales de vídeo general (UGC/mixto).
+        "youtube.com", "youtu.be", "vimeo.com", "dailymotion.com" -> "entretenimiento"
+
+        // Cine — sitios de info/reseñas de películas (no plataformas).
+        "imdb.com", "letterboxd.com", "filmaffinity.com",
+        "rottentomatoes.com", "themoviedb.org", "justwatch.com",
+        "sensacine.com", "trakt.tv", "allocine.fr",
+        "fotogramas.es", "espinof.com", "cartelera.elpais.com",
+        "elseptimoarte.net", "culturagenial.com", "ecartelera.com" -> "cine"
+
+        // Streaming — plataformas SVOD/AVOD + portales de canales TV.
+        "netflix.com", "hulu.com", "primevideo.com",
         "disneyplus.com", "hbomax.com", "max.com", "appletv.com",
-        "crunchyroll.com", "funimation.com", "rottentomatoes.com",
-        "letterboxd.com", "themoviedb.org",
-        "filmaffinity.com", "sensacine.com", "fotogramas.es",
-        "espinof.com", "cartelera.elpais.com", "elseptimoarte.net",
-        "culturagenial.com", "ecartelera.com", "mubi.com",
-        "filmin.es",
+        "crunchyroll.com", "funimation.com", "mubi.com", "filmin.es",
         "atresplayer.com", "mitele.es", "movistarplus.es",
         "plex.tv", "stremio.com", "cuevana.io", "cuevana3.io",
         "pelisplus.io", "repelis.tv", "telecinco.es",
         "antena3.com", "cuatro.com", "lasexta.com",
         "clan.rtve.es", "playz.es", "dazn.com", "rakuten.tv",
-        "pluto.tv", "tubi.tv", "paramount.plus" -> "entretenimiento"
+        "pluto.tv", "tubi.tv", "paramount.plus" -> "streaming"
 
         "store.steampowered.com", "steampowered.com", "twitch.tv",
         "itch.io", "epicgames.com", "gog.com", "origin.com",
         "xbox.com", "playstation.com", "nintendo.com",
-        "gamespot.com", "ign.com", "kotaku.com",
+        "gamespot.com", "ign.com", "kotaku.com", "polygon.com",
         "3djuegos.com", "vandal.net", "meristation.com",
         "hobbyconsolas.com", "metacritic.com", "steamcommunity.com",
         "ea.com", "ubisoft.com", "riotgames.com", "blizzard.com",
@@ -279,11 +436,11 @@ class ShareIntentActivity : Activity() {
         "eurogamer.net", "igdb.com", "rawg.io",
         "howlongtobeat.com" -> "gaming"
 
-        "bbc.com", "bbc.co.uk", "elpais.com", "elmundo.es",
+        "bbc.com", "bbc.co.uk", "cnn.com", "elpais.com", "elmundo.es",
         "reuters.com", "apnews.com", "theguardian.com",
         "nytimes.com", "washingtonpost.com", "lemonde.fr",
         "spiegel.de", "publico.es", "elconfidencial.com",
-        "lavanguardia.com", "20minutos.es",
+        "lavanguardia.com", "20minutos.es", "abc.es", "rtve.es",
         "eldiario.es", "expansion.com", "eleconomista.es",
         "cincodias.elpais.com", "invertia.com", "periodistadigital.com",
         "huffingtonpost.es", "vozpopuli.com",
@@ -294,7 +451,7 @@ class ShareIntentActivity : Activity() {
         "diariovasco.com", "elcorreo.com", "hoy.es" -> "noticias"
 
         "coursera.org", "udemy.com", "edx.org", "khanacademy.org",
-        "pluralsight.com", "skillshare.com", "lynda.com",
+        "pluralsight.com", "skillshare.com", "lynda.com", "domestika.org",
         "linkedin.com/learning", "udacity.com", "freecodecamp.org",
         "codecademy.com", "brilliant.org", "duolingo.com",
         "wolframalpha.com", "linguee.com", "wordreference.com",
@@ -306,7 +463,7 @@ class ShareIntentActivity : Activity() {
 
         "spotify.com", "soundcloud.com", "bandcamp.com",
         "music.apple.com", "tidal.com", "deezer.com",
-        "last.fm", "genius.com", "musixmatch.com",
+        "last.fm", "genius.com", "letras.com", "musixmatch.com",
         "audiomack.com", "mixcloud.com",
         "letras.mus.br", "azlyrics.com", "shazam.com",
         "beatport.com", "songkick.com", "setlist.fm",

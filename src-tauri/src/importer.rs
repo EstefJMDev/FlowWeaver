@@ -227,7 +227,7 @@ fn html_decode(s: &str) -> String {
 // ── Shared insert ─────────────────────────────────────────────────────────────
 
 fn insert_bookmark(url: &str, title: &str, captured_at: i64, db: &Db, key: &str, result: &mut ImportResult) {
-    let classified = classifier::classify(url);
+    let classified = classifier::classify(url, if title.is_empty() { None } else { Some(title) });
     // UUID v5 derived from URL — same URL always produces same UUID, enabling
     // idempotent re-import without a URL index on the encrypted column.
     let uuid = Uuid::new_v5(&Uuid::NAMESPACE_URL, url.as_bytes()).to_string();
