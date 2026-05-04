@@ -461,4 +461,24 @@ mod tests {
             Uuid::parse_str(&p.pattern_id).expect("pattern_id is not a valid UUID");
         }
     }
+
+    #[test]
+    fn test_pattern_id_is_deterministic() {
+        let db = open_mem();
+        for week in 0..3 {
+            let t = ts_at(0, week, 9, 15);
+            insert_at(&db, "github.com", "desarrollo", t);
+            insert_at(&db, "docs.rs", "desarrollo", t + 15 * MIN_S);
+        }
+        let run1 = detect_patterns(db.conn(), &test_config()).expect("detect 1");
+        let run2 = detect_patterns(db.conn(), &test_config()).expect("detect 2");
+        assert!(!run1.is_empty());
+        assert_eq!(run1.len(), run2.len(), "pattern count diverged between runs");
+        for (a, b) in run1.iter().zip(run2.iter()) {
+            assert_eq!(
+                a.pattern_id, b.pattern_id,
+                "pattern_id no determinístico para mismo input"
+            );
+        }
+    }
 }
