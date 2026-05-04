@@ -279,8 +279,15 @@ fn build_pattern(time_bucket: TimeBucket, sessions: Vec<LabeledSession>) -> Dete
         .unwrap_or_default();
     let label = format!("{} ({})", dominant_category, time_bucket_es(&time_bucket));
 
+    let pattern_id = derive_pattern_id(
+        &time_bucket,
+        day_of_week_mask,
+        &category_signature,
+        &domain_signature,
+    );
+
     DetectedPattern {
-        pattern_id: Uuid::new_v4().to_string(),
+        pattern_id,
         label,
         category_signature,
         domain_signature,
@@ -289,6 +296,42 @@ fn build_pattern(time_bucket: TimeBucket, sessions: Vec<LabeledSession>) -> Dete
         first_seen,
         last_seen,
     }
+}
+
+const PATTERN_NAMESPACE: Uuid = Uuid::from_bytes([
+    0xb3, 0xf1, 0xc0, 0x00, 0xfa, 0xce, 0x4f, 0x10,
+    0x9a, 0x7e, 0xfa, 0x5e, 0x70, 0x57, 0xa1, 0xd0,
+]);
+
+fn derive_pattern_id(
+    time_bucket: &TimeBucket,
+    day_of_week_mask: u8,
+    category_signature: &[CategoryWeight],
+    domain_signature: &[DomainWeight],
+) -> String {
+    let mut canonical = String::new();
+    canonical.push_str(match time_bucket {
+        TimeBucket::Morning => "Morning",
+        TimeBucket::Afternoon => "Afternoon",
+        TimeBucket::Evening => "Evening",
+    });
+    canonical.push('|');
+    canonical.push_str(&format!("{day_of_week_mask:08b}"));
+    canonical.push('|');
+    for (i, c) in category_signature.iter().enumerate() {
+        if i > 0 {
+            canonical.push(',');
+        }
+        canonical.push_str(&format!("{}:{:.6}", c.category, c.weight));
+    }
+    canonical.push('|');
+    for (i, d) in domain_signature.iter().enumerate() {
+        if i > 0 {
+            canonical.push(',');
+        }
+        canonical.push_str(&format!("{}:{:.6}", d.domain, d.weight));
+    }
+    Uuid::new_v5(&PATTERN_NAMESPACE, canonical.as_bytes()).to_string()
 }
 
 fn time_bucket_es(b: &TimeBucket) -> &'static str {
