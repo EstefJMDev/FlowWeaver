@@ -225,6 +225,11 @@ fn tokenize(title: &str) -> Vec<String> {
         "than", "that", "them", "then", "there", "these", "they",
         "this", "time", "very", "want", "well", "were", "what",
         "when", "will", "with", "your",
+        // H-004: TLDs filtrados aquí porque session_builder usa r.domain como
+        // fallback de title vacío ("instagram.com"→tokens ["instagram","com"]).
+        // El token "com" aparecía en casi todos los recursos → Jaccard alto →
+        // clusters ruidosos. extract_url_tokens ya filtra el mismo set en NOISE.
+        "com", "net", "org", "www", "edu", "gov", "io", "app", "dev",
     ];
     title
         .split(|c: char| !c.is_alphanumeric())
