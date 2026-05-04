@@ -127,7 +127,10 @@ fn e2e_relay_data_roundtrip() {
 
     assert_eq!(stored.domain, ORIGIN_DOMAIN);
     assert_eq!(stored.category, ORIGIN_CATEGORY);
-    assert_eq!(stored.captured_at, captured_at);
+    // H-003: RawEvent.captured_at viaja en milisegundos (raw_event.rs §"Unix ms"),
+    // pero storage::resources.captured_at se persiste en segundos. process_android_event
+    // hace la conversión ms→s antes de insertar.
+    assert_eq!(stored.captured_at, captured_at / 1000);
 
     let url_plain = crypto::decrypt_any(&stored.url, DESKTOP_LOCAL_KEY)
         .expect("desktop must decrypt url with its own local key");

@@ -271,7 +271,10 @@ pub fn process_android_event(
         title: crypto::encrypt_aes(&title_plain, local_key),
         domain: event.domain.clone(),
         category: event.category.clone(),
-        captured_at: event.captured_at,
+        // H-003: RawEvent.captured_at viaja en milisegundos (raw_event.rs §"Unix ms"),
+        // pero storage::resources.captured_at se almacena en segundos. Convertir aquí
+        // para que session_builder/episode_detector reciban epoch seconds correctos.
+        captured_at: event.captured_at / 1000,
     };
     db.insert_or_ignore(&resource).map_err(|e| e.to_string())?;
     // Persist the Android event_id so relay_events survives delete_all() and

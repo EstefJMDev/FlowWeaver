@@ -99,6 +99,19 @@ impl Db {
         let _ = self.conn.execute_batch(
             "ALTER TABLE resources ADD COLUMN captured_at INTEGER NOT NULL DEFAULT 0;"
         );
+
+        // H-003 fix: corrige registros con captured_at en milisegundos producidos
+        // por la ruta drive_relay (Android→Desktop) antes de la conversión ms→s.
+        // Heurística: 4_102_444_800 = 2100-01-01 epoch seconds. Cualquier valor
+        // por encima es inequívocamente milisegundos (ningún timestamp real en
+        // segundos llega a 2100). Idempotente: tras dividir queda < umbral y no
+        // se vuelve a tocar en arranques siguientes.
+        self.conn.execute(
+            "UPDATE resources
+             SET captured_at = captured_at / 1000
+             WHERE captured_at > 4102444800",
+            [],
+        )?;
         Ok(())
     }
 
