@@ -27,3 +27,9 @@ src-tauri/gen/
 # OS
 .DS_Store
 Thumbs.db
+
+# Claude Code local
+.claude/settings.local.json
+
+# Captures (work artifacts — not source)
+Captura de pantalla *.png
