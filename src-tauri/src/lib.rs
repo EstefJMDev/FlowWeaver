@@ -145,6 +145,7 @@ pub fn run() {
             commands::open_resource_url,
             commands::configure_drive,
             commands::get_relay_device_id,
+            commands::reclassify_all_resources, // TEMP: reclassify
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

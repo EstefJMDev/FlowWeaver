@@ -32,6 +32,14 @@ pub fn classify(url: &str, title: Option<&str>) -> Classified {
     Classified { domain, category }
 }
 
+// TEMP: reclassify helper — eliminar tras reclasificación única.
+// Se invoca con tokens vacíos: el reclasificador opera sobre `domain` ya
+// almacenado (tabla + TLD + subdominio); Capa A.3 no aplica porque no
+// disponemos del path ni del título originales tras la captura.
+pub fn classify_domain(domain: &str) -> String {
+    lookup_category(domain, &[], &[]).to_string()
+}
+
 fn extract_domain(url: &str) -> String {
     let s = if let Some(p) = url.find("://") { &url[p + 3..] } else { url };
     let host = s.split(|c| matches!(c, '/' | '?' | '#')).next().unwrap_or("");

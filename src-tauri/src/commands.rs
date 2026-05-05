@@ -839,6 +839,28 @@ fn derive_fs_key(app: &tauri::AppHandle) -> [u8; 32] {
     fs_watcher::derive_filename_key(&db_key(app))
 }
 
+// TEMP: reclassify — eliminar tras ejecución única. No commitear.
+#[tauri::command]
+pub fn reclassify_all_resources(
+    state: State<'_, DbState>,
+) -> Result<String, String> {
+    let db = state.0.lock().map_err(|e| e.to_string())?; // TEMP: reclassify
+    let resources = db.all_resources().map_err(|e| e.to_string())?; // TEMP: reclassify
+    let total = resources.len(); // TEMP: reclassify
+    let mut updated = 0usize; // TEMP: reclassify
+    let mut unchanged = 0usize; // TEMP: reclassify
+    for r in &resources { // TEMP: reclassify
+        let classified = classifier::classify_domain(&r.domain); // TEMP: reclassify
+        if classified != r.category { // TEMP: reclassify
+            db.set_category(&r.uuid, &classified).map_err(|e| e.to_string())?; // TEMP: reclassify
+            updated += 1; // TEMP: reclassify
+        } else { // TEMP: reclassify
+            unchanged += 1; // TEMP: reclassify
+        } // TEMP: reclassify
+    } // TEMP: reclassify
+    Ok(format!("Reclasificados: {updated}/{total} (sin cambio: {unchanged})")) // TEMP: reclassify
+} // TEMP: reclassify
+
 #[cfg(test)]
 mod tests {
     /// D1 verificación estructural — TS-2-004 §"Verificación Doble (i)".
