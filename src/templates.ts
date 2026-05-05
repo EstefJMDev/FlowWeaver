@@ -83,4 +83,54 @@ export const CATEGORY_TEMPLATES: Record<string, string[]> = {
     "Organizar en notas propias",
     "Identificar próximas acciones",
   ],
+  deportes: [
+    "Ver resultados y clasificación",
+    "Revisar próximos partidos o eventos",
+    "Guardar lo más relevante del tema",
+  ],
+  tecnología: [
+    "Revisar artículos y novedades guardados",
+    "Comparar herramientas o frameworks vistos",
+    "Anotar puntos de acción o próximos pasos",
+  ],
+  cocina: [
+    "Revisar las recetas guardadas",
+    "Hacer lista de ingredientes necesarios",
+    "Planificar el menú de la semana",
+  ],
+  gobierno: [
+    "Revisar trámites o documentación guardada",
+    "Identificar plazos y fechas clave",
+    "Preparar documentos necesarios",
+  ],
+  salud: [
+    "Revisar información médica guardada",
+    "Anotar preguntas para la próxima consulta",
+    "Organizar seguimiento de hábitos o tratamiento",
+  ],
+  viajes: [
+    "Revisar destinos y opciones guardadas",
+    "Comparar precios y disponibilidad",
+    "Crear borrador de itinerario",
+  ],
+  finanzas: [
+    "Revisar información financiera guardada",
+    "Comparar opciones o productos vistos",
+    "Anotar próximas acciones o decisiones pendientes",
+  ],
+  inmobiliario: [
+    "Revisar propiedades o recursos guardados",
+    "Comparar opciones disponibles",
+    "Preparar preguntas o próximos pasos",
+  ],
+  ia: [
+    "Revisar recursos y artículos de IA guardados",
+    "Comparar modelos o herramientas vistos",
+    "Anotar experimentos o aplicaciones a probar",
+  ],
+  ciencia: [
+    "Revisar artículos y publicaciones guardadas",
+    "Anotar hallazgos o conceptos clave",
+    "Identificar siguientes lecturas o experimentos",
+  ],
 };
