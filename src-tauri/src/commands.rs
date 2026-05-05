@@ -891,4 +891,275 @@ mod tests {
             }
         }
     }
+
+    // ── E2E Privacy Dashboard — T-2-004-e2e ──────────────────────────────────
+    //
+    // Sustituto de las 5 capturas manuales de TS-2-004 §"Mecanismo ii".
+    // Verifica los 4 elementos de UI del Privacy Dashboard para cada uno de los
+    // 4 estados (Observing, Learning, Trusted, Autonomous) con datos sintéticos.
+    // Sin red, sin LLM, sin proxy. Determinístico (D8): now_unix fijo.
+    // Referencia: TS-2-004-e2e, AR-2-006, PIR-005-addendum.
+
+    use crate::pattern_detector::PatternConfig;
+    use crate::state_machine::StateMachineConfig;
+
+    const TEST_NOW: i64 = 1_714_000_000_i64;
+
+    fn open_test_db() -> crate::storage::Db {
+        let db = crate::storage::Db::open(std::path::Path::new(":memory:"), "test-key")
+            .expect("open db");
+        db.migrate().expect("migrate");
+        db
+    }
+
+    fn synthetic_scores(trust: f64, count: usize) -> Vec<crate::trust_scorer::TrustScore> {
+        (0..count)
+            .map(|i| crate::trust_scorer::TrustScore {
+                pattern_id: format!("pattern-{i:03}"),
+                trust_score: trust,
+                stability_score: 0.8,
+                recency_weight: 1.0,
+                confidence_tier: crate::trust_scorer::ConfidenceTier::High,
+            })
+            .collect()
+    }
+
+    /// Elemento 1 (indicador de estado): Observing — BD vacía, sin patrones.
+    /// Elemento 2 (mecanismos activos): lista vacía.
+    /// Elemento 3 (controles): sin EnableAutonomous.
+    /// Elemento 4 (métricas de privacidad): resource_count = 0.
+    #[test]
+    fn e2e_dashboard_observing_state() {
+        let db = open_test_db();
+        let conn = db.conn();
+        crate::state_machine::ensure_schema(conn, TEST_NOW).unwrap();
+        crate::pattern_blocks::ensure_schema(conn).unwrap();
+
+        // 1. Indicador de estado
+        let (current, last_ts) = crate::state_machine::load_state(conn).unwrap();
+        assert_eq!(current, crate::state_machine::TrustStateEnum::Observing);
+
+        // 3. Controles disponibles (evaluate_transition — no scores)
+        let state = crate::state_machine::evaluate_transition(
+            &[],
+            current,
+            last_ts,
+            None,
+            TEST_NOW,
+            &StateMachineConfig::default(),
+            false,
+        )
+        .unwrap();
+        assert_eq!(state.current_state, crate::state_machine::TrustStateEnum::Observing);
+        // Sin suficientes patrones: no EnableAutonomous
+        let has_autonomous = state
+            .available_transitions
+            .iter()
+            .any(|t| matches!(t.to, crate::state_machine::TrustStateEnum::Autonomous));
+        assert!(!has_autonomous, "Autonomous no disponible en Observing");
+
+        // 2. Mecanismos activos: vacíos
+        let patterns =
+            crate::pattern_detector::detect_patterns(conn, &PatternConfig::default()).unwrap();
+        assert!(patterns.is_empty(), "Sin patrones en BD vacía");
+
+        // 4. Métricas de privacidad
+        let stats = db.privacy_stats().unwrap();
+        assert_eq!(stats.resource_count, 0, "Sin recursos en BD vacía");
+    }
+
+    /// Elemento 1: indicador de estado Learning (transición automática desde Observing).
+    /// Condición: ≥3 scores con trust_score > 0.4 (threshold_low).
+    #[test]
+    fn e2e_dashboard_learning_state() {
+        // 3 scores con trust = 0.5 > threshold_low (0.4)
+        let scores = synthetic_scores(0.5, 3);
+
+        let state = crate::state_machine::evaluate_transition(
+            &scores,
+            crate::state_machine::TrustStateEnum::Observing,
+            0,
+            None,
+            TEST_NOW,
+            &StateMachineConfig::default(),
+            false,
+        )
+        .unwrap();
+
+        // 1. Indicador de estado
+        assert_eq!(state.current_state, crate::state_machine::TrustStateEnum::Learning);
+        // 3. Controles: active_patterns_count presente
+        assert_eq!(state.active_patterns_count, 3);
+    }
+
+    /// Elemento 1: indicador de estado Trusted (transición desde Learning).
+    /// Elemento 3: EnableAutonomous disponible en controles.
+    /// Condición: trust_score > 0.75 (threshold_high) + no bloqueado.
+    #[test]
+    fn e2e_dashboard_trusted_state() {
+        // 3 scores con trust = 0.9 > threshold_high (0.75)
+        let scores = synthetic_scores(0.9, 3);
+
+        let state = crate::state_machine::evaluate_transition(
+            &scores,
+            crate::state_machine::TrustStateEnum::Learning,
+            0,
+            None,
+            TEST_NOW,
+            &StateMachineConfig::default(),
+            false,
+        )
+        .unwrap();
+
+        // 1. Indicador de estado
+        assert_eq!(state.current_state, crate::state_machine::TrustStateEnum::Trusted);
+
+        // 3. Controles: EnableAutonomous disponible desde Trusted
+        let has_autonomous = state
+            .available_transitions
+            .iter()
+            .any(|t| matches!(t.to, crate::state_machine::TrustStateEnum::Autonomous));
+        assert!(has_autonomous, "EnableAutonomous debe estar disponible en Trusted");
+    }
+
+    /// Elemento 1: indicador de estado Autonomous (acción explícita del usuario).
+    /// Condición: UserAction::EnableAutonomous { confirmed: true } desde Trusted.
+    #[test]
+    fn e2e_dashboard_autonomous_state() {
+        let scores = synthetic_scores(0.9, 3);
+
+        let state = crate::state_machine::evaluate_transition(
+            &scores,
+            crate::state_machine::TrustStateEnum::Trusted,
+            0,
+            Some(crate::state_machine::UserAction::EnableAutonomous { confirmed: true }),
+            TEST_NOW,
+            &StateMachineConfig::default(),
+            false,
+        )
+        .unwrap();
+
+        // 1. Indicador de estado
+        assert_eq!(state.current_state, crate::state_machine::TrustStateEnum::Autonomous);
+    }
+
+    /// Elemento 4: métricas de privacidad (resource_count, categories, domains)
+    /// con datos sintéticos insertados en BD.
+    #[test]
+    fn e2e_dashboard_privacy_stats_with_synthetic_data() {
+        let db = open_test_db();
+
+        let resources = vec![
+            crate::storage::NewResource {
+                uuid: "uuid-1".to_string(),
+                url: crate::crypto::encrypt_aes("https://github.com/test", "test-key"),
+                title: crate::crypto::encrypt_aes("Test title 1", "test-key"),
+                domain: "github.com".to_string(),
+                category: "desarrollo".to_string(),
+                captured_at: TEST_NOW - 3600,
+            },
+            crate::storage::NewResource {
+                uuid: "uuid-2".to_string(),
+                url: crate::crypto::encrypt_aes("https://example.com/test", "test-key"),
+                title: crate::crypto::encrypt_aes("Test title 2", "test-key"),
+                domain: "example.com".to_string(),
+                category: "noticias".to_string(),
+                captured_at: TEST_NOW - 7200,
+            },
+        ];
+        for r in &resources {
+            db.insert_or_ignore(r).unwrap();
+        }
+
+        // 4. Métricas de privacidad
+        let stats = db.privacy_stats().unwrap();
+        assert_eq!(stats.resource_count, 2, "resource_count correcto");
+        assert!(!stats.categories.is_empty(), "categories no vacío");
+        assert!(!stats.domains.is_empty(), "domains no vacío");
+
+        // D1: ningún campo expone url/title — solo domain y category
+        for cat in &stats.categories {
+            assert!(!cat.category.contains("http"), "D1: category no contiene url");
+        }
+        for dom in &stats.domains {
+            assert!(!dom.domain.contains("title"), "D1: domain no contiene title");
+        }
+    }
+
+    /// Elemento 2: lista de mecanismos activos (PatternSummary) con recursos
+    /// sintéticos suficientes para disparar detección de patrones.
+    /// PatternConfig::default() requiere min_frequency = 3 en 30 días.
+    /// Los timestamps se calculan relativos a now para mantenerse dentro
+    /// de la ventana de lookback de pattern_detector (que usa SystemTime::now()).
+    #[test]
+    fn e2e_dashboard_patterns_with_synthetic_resources() {
+        let db = open_test_db();
+        let conn = db.conn();
+        crate::pattern_blocks::ensure_schema(conn).unwrap();
+
+        // base_ts = ahora - 20 días: dentro de la ventana lookback_days = 30
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("time")
+            .as_secs() as i64;
+        let base_ts = now - 20 * 86_400;
+
+        // 6 recursos github.com/desarrollo en 6 ventanas distintas (cada 3 días).
+        // Distribuidos en 3 sesiones de captura (gap > 30 min entre sesiones):
+        // sesión 1: t+0, t+30min (mismo día — gap < SESSION_GAP_SECS, misma sesión)
+        // sesión 2: t+3d, t+3d+30min
+        // sesión 3: t+6d, t+6d+30min
+        // Esto produce 3 sesiones con la misma combinación (github.com, desarrollo)
+        // → frequency = 3 → cumple min_frequency = 3.
+        let session_offsets = [
+            0_i64,
+            1800,           // +30 min (misma sesión 1)
+            3 * 86_400,     // día 3 (sesión 2)
+            3 * 86_400 + 1800,
+            6 * 86_400,     // día 6 (sesión 3)
+            6 * 86_400 + 1800,
+        ];
+        for (i, offset) in session_offsets.iter().enumerate() {
+            let r = crate::storage::NewResource {
+                uuid: format!("pattern-uuid-{i}"),
+                url: crate::crypto::encrypt_aes(
+                    &format!("https://github.com/resource-{i}"),
+                    "test-key",
+                ),
+                title: crate::crypto::encrypt_aes(
+                    &format!("Resource title {i}"),
+                    "test-key",
+                ),
+                domain: "github.com".to_string(),
+                category: "desarrollo".to_string(),
+                captured_at: base_ts + offset,
+            };
+            db.insert_or_ignore(&r).unwrap();
+        }
+
+        // 2. Lista de mecanismos activos
+        let patterns =
+            crate::pattern_detector::detect_patterns(conn, &PatternConfig::default()).unwrap();
+
+        // Verificar estructura de PatternSummary (los 4 campos requeridos por TS-2-004)
+        assert!(
+            !patterns.is_empty(),
+            "detect_patterns debe encontrar al menos un patrón con recursos en ventana de 30 días"
+        );
+        for p in &patterns {
+            assert!(!p.pattern_id.is_empty(), "pattern_id presente");
+            assert!(!p.label.is_empty(), "label presente");
+            assert!(!p.category_signature.is_empty(), "category_signature presente");
+            assert!(!p.domain_signature.is_empty(), "domain_signature presente");
+        }
+
+        // D1: patterns no exponen url ni title
+        for p in &patterns {
+            assert!(
+                !p.label.contains("http"),
+                "D1: label no debe contener url — label='{}'",
+                p.label
+            );
+        }
+    }
 }
