@@ -659,6 +659,45 @@ pub fn clear_synthesis_token(
 // ── Phase 3 — Synthesis Engine (T-3-009) ──────────────────────────────────────
 
 #[derive(Debug, Serialize)]
+pub struct StoredSynthesisView {
+    pub anchor_key:     String,
+    pub category:       String,
+    pub synthesis_type: String,
+    pub content:        String,  // descifrado — igual que titles en session_builder
+    pub generated_at:   i64,
+}
+
+/// Devuelve la síntesis más reciente para un anchor_key, descifrada.
+/// Expone content descifrado al frontend: el contenido de síntesis no es url/title (D1).
+/// El usuario consintió enviar estos datos al proxy (D25); mostrarlos es coherente.
+#[tauri::command]
+pub fn get_synthesis_for_anchor(
+    anchor_key: String,
+    state: State<'_, DbState>,
+    app: tauri::AppHandle,
+) -> Result<Option<StoredSynthesisView>, String> {
+    let db = state.0.lock().map_err(|e| e.to_string())?;
+    let conn = db.conn();
+    syntheses_store::ensure_schema(conn).map_err(|e| e.to_string())?;
+    let entry = match syntheses_store::get_by_anchor(conn, &anchor_key)
+        .map_err(|e| e.to_string())?
+    {
+        None => return Ok(None),
+        Some(e) => e,
+    };
+    let key = db_key(&app);
+    let content = crypto::decrypt_any(&entry.content_encrypted, &key)
+        .ok_or("decrypt failed")?;
+    Ok(Some(StoredSynthesisView {
+        anchor_key:     entry.anchor_key,
+        category:       entry.category,
+        synthesis_type: entry.synthesis_type,
+        content,
+        generated_at:   entry.generated_at,
+    }))
+}
+
+#[derive(Debug, Serialize)]
 pub struct SynthesisUsage {
     pub used_this_month:  u32,
     pub limit_this_month: u32,
@@ -1653,5 +1692,35 @@ mod tests {
 
         let used = super::count_local_syntheses(&conn, month_start);
         assert_eq!(used, 1, "solo la síntesis del mes actual debe contarse");
+    }
+
+    #[test]
+    fn test_get_synthesis_for_anchor_round_trip() {
+        // Prueba la capa store + cifrado con clave local fija (sin AppHandle).
+        // La integración completa (decrypt_any vía db_key real) se cubre en e2e.
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        crate::syntheses_store::ensure_schema(&conn).unwrap();
+
+        let key = "test-key-unit";
+        let plaintext = "## Resumen de prueba\n\nContenido de síntesis.";
+        let encrypted = crate::crypto::encrypt_aes(plaintext, key);
+
+        crate::syntheses_store::save(&conn, &crate::syntheses_store::SynthesisEntry {
+            anchor_key:        "anc-rt".to_string(),
+            anchor_type:       "session".to_string(),
+            category:          "cocina".to_string(),
+            synthesis_type:    "cocina".to_string(),
+            content_encrypted: encrypted.clone(),
+            generated_at:      1_700_000_000,
+        }).unwrap();
+
+        let stored = crate::syntheses_store::get_by_anchor(&conn, "anc-rt")
+            .unwrap()
+            .unwrap();
+        assert_eq!(stored.anchor_key, "anc-rt");
+        assert_ne!(stored.content_encrypted, plaintext, "content_encrypted debe estar cifrado");
+
+        let decrypted = crate::crypto::decrypt_any(&stored.content_encrypted, key).unwrap();
+        assert_eq!(decrypted, plaintext, "round-trip cifrado→descifrado");
     }
 }
