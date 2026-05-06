@@ -876,6 +876,21 @@ pub fn record_synthesis_consent(
     Ok(())
 }
 
+/// Revoca el consentimiento de síntesis — marca revoked_at, no borra la fila (audit trail).
+#[tauri::command]
+pub fn revoke_synthesis_consent(state: State<'_, DbState>) -> Result<(), String> {
+    let now_unix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .map_err(|e| e.to_string())?;
+    let db = state.0.lock().map_err(|e| e.to_string())?;
+    let conn = db.conn();
+    consent_log_store::ensure_schema(conn).map_err(|e| e.to_string())?;
+    consent_log_store::revoke_consent(conn, "synthesis", now_unix)
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /// Derive the field-level encryption key for url/title in SQLite.
@@ -1472,7 +1487,7 @@ mod tests {
         crate::consent_log_store::record_consent(&conn, "synthesis", "synthesis_v1", 1_000_000).unwrap();
         assert!(crate::consent_log_store::has_consent(&conn, "synthesis", "synthesis_v1").unwrap());
 
-        crate::consent_log_store::revoke_consent(&conn, "synthesis").unwrap();
+        crate::consent_log_store::revoke_consent(&conn, "synthesis", 2_000_000).unwrap();
         assert!(!crate::consent_log_store::has_consent(&conn, "synthesis", "synthesis_v1").unwrap());
     }
 
