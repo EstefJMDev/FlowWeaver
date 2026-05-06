@@ -35,3 +35,28 @@ pub(crate) fn has_consent(
         .unwrap_or(0);
     Ok(count > 0)
 }
+
+pub(crate) fn record_consent(
+    conn: &Connection,
+    consent_type: &str,
+    version: &str,
+    now_unix: i64,
+) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "INSERT INTO consent_log (consent_type, consent_version, accepted_at)
+         VALUES (?1, ?2, ?3)",
+        rusqlite::params![consent_type, version, now_unix],
+    )?;
+    Ok(())
+}
+
+pub(crate) fn revoke_consent(
+    conn: &Connection,
+    consent_type: &str,
+) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "DELETE FROM consent_log WHERE consent_type = ?1",
+        rusqlite::params![consent_type],
+    )?;
+    Ok(())
+}

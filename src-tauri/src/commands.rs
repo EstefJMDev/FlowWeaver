@@ -1,5 +1,5 @@
 ﻿use serde::{Deserialize, Serialize};
-use tauri::{Manager, State};
+use tauri::{Emitter, Manager, State};
 use uuid::Uuid;
 
 use crate::{
@@ -737,16 +737,36 @@ pub async fn generate_synthesis(
         const PROXY_URL: &str =
             "https://flowweaver-proxy.bananasplitsound.workers.dev/synthesize";
 
-        let full_content = synthesis_engine::fetch_from_proxy(
+        let app_for_chunk = app.clone();
+        let anchor_for_chunk = anchor_key.clone();
+        let fetch_result = synthesis_engine::fetch_from_proxy(
             &token,
             body,
             PROXY_URL,
-            |_chunk| {
-                // T-3-010 conectará esto a Tauri events para streaming UI
+            move |chunk| {
+                let _ = app_for_chunk.emit("synthesis_chunk", serde_json::json!({
+                    "anchor_key": anchor_for_chunk,
+                    "chunk": chunk,
+                }));
             },
         )
-        .await
-        .map_err(|e| e.to_string())?;
+        .await;
+
+        let full_content = match fetch_result {
+            Ok(c) => {
+                let _ = app.emit("synthesis_complete", serde_json::json!({
+                    "anchor_key": anchor_key,
+                }));
+                c
+            }
+            Err(e) => {
+                let _ = app.emit("synthesis_error", serde_json::json!({
+                    "anchor_key": anchor_key,
+                    "error": e.to_string(),
+                }));
+                return Err(e.to_string());
+            }
+        };
 
         // Phase 3: persistir (re-adquirir lock)
         {
@@ -809,6 +829,51 @@ pub fn get_synthesis_usage(state: State<'_, DbState>) -> Result<SynthesisUsage, 
         limit_this_month: 5,
         synthesis_active: token_set && has_consent,
     })
+}
+
+// ── Phase 3 — Consent (T-3-012) ──────────────────────────────────────────────
+
+#[derive(Debug, Serialize)]
+pub struct ConsentStatus {
+    pub has_consent:     bool,
+    pub consent_version: String,
+    pub current_version: String,
+    pub needs_renewal:   bool,
+}
+
+/// Verifica si existe consentimiento vigente para síntesis.
+#[tauri::command]
+pub fn check_synthesis_consent(
+    state: State<'_, DbState>,
+) -> Result<ConsentStatus, String> {
+    let db = state.0.lock().map_err(|e| e.to_string())?;
+    let conn = db.conn();
+    consent_log_store::ensure_schema(conn).map_err(|e| e.to_string())?;
+    let has = consent_log_store::has_consent(conn, "synthesis", "synthesis_v1")
+        .map_err(|e| e.to_string())?;
+    Ok(ConsentStatus {
+        has_consent:     has,
+        consent_version: if has { "synthesis_v1".to_string() } else { "".to_string() },
+        current_version: "synthesis_v1".to_string(),
+        needs_renewal:   false,
+    })
+}
+
+/// Registra el consentimiento del usuario en consent_log (D25).
+#[tauri::command]
+pub fn record_synthesis_consent(
+    state: State<'_, DbState>,
+) -> Result<(), String> {
+    let now_unix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .map_err(|e| e.to_string())?;
+    let db = state.0.lock().map_err(|e| e.to_string())?;
+    let conn = db.conn();
+    consent_log_store::ensure_schema(conn).map_err(|e| e.to_string())?;
+    consent_log_store::record_consent(conn, "synthesis", "synthesis_v1", now_unix)
+        .map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -1393,6 +1458,29 @@ mod tests {
         for dom in &stats.domains {
             assert!(!dom.domain.contains("title"), "D1: domain no contiene title");
         }
+    }
+
+    // ── Phase 3 — Consent (T-3-012) tests ───────────────────────────────────
+
+    #[test]
+    fn test_consent_record_and_check() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        crate::consent_log_store::ensure_schema(&conn).unwrap();
+
+        assert!(!crate::consent_log_store::has_consent(&conn, "synthesis", "synthesis_v1").unwrap());
+
+        crate::consent_log_store::record_consent(&conn, "synthesis", "synthesis_v1", 1_000_000).unwrap();
+        assert!(crate::consent_log_store::has_consent(&conn, "synthesis", "synthesis_v1").unwrap());
+
+        crate::consent_log_store::revoke_consent(&conn, "synthesis").unwrap();
+        assert!(!crate::consent_log_store::has_consent(&conn, "synthesis", "synthesis_v1").unwrap());
+    }
+
+    #[test]
+    fn test_consent_schema_idempotent() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        crate::consent_log_store::ensure_schema(&conn).unwrap();
+        crate::consent_log_store::ensure_schema(&conn).unwrap();
     }
 
     #[test]

@@ -156,6 +156,8 @@ pub fn run() {
             commands::clear_synthesis_token,
             commands::generate_synthesis,
             commands::get_synthesis_usage,
+            commands::check_synthesis_consent,
+            commands::record_synthesis_consent,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
