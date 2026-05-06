@@ -67,9 +67,7 @@ export function SynthesisView(props: SynthesisViewProps) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Escuchar eventos Tauri — flag stale elimina race condition de StrictMode
   useEffect(() => {
-    let stale = false;
     let unlistenChunk: (() => void) | undefined;
     let unlistenComplete: (() => void) | undefined;
     let unlistenError: (() => void) | undefined;
@@ -79,37 +77,28 @@ export function SynthesisView(props: SynthesisViewProps) {
       unlistenChunk = await listen<{ anchor_key: string; chunk: string }>(
         'synthesis_chunk',
         (event) => {
-          if (stale) return;
           if (event.payload.anchor_key !== anchorKey) return;
           contentAccum += event.payload.chunk;
           setState({ status: 'streaming', content: contentAccum });
         }
       );
-      if (stale) { unlistenChunk(); return; }
-
       unlistenComplete = await listen<{ anchor_key: string }>(
         'synthesis_complete',
         (event) => {
-          if (stale) return;
           if (event.payload.anchor_key !== anchorKey) return;
           setState({ status: 'complete', content: contentAccum });
         }
       );
-      if (stale) { unlistenComplete(); return; }
-
       unlistenError = await listen<{ anchor_key: string; error: string }>(
         'synthesis_error',
         (event) => {
-          if (stale) return;
           if (event.payload.anchor_key !== anchorKey) return;
           setState({ status: 'error', message: mapError(event.payload.error) });
         }
       );
-      if (stale) { unlistenError(); return; }
     })();
 
     return () => {
-      stale = true;
       unlistenChunk?.();
       unlistenComplete?.();
       unlistenError?.();
