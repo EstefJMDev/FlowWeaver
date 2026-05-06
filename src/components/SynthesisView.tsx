@@ -1,14 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
-import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
+import { useEffect, useCallback, useState } from 'react';
 import { renderMarkdown } from '../utils/renderMarkdown';
-
-type SynthesisState =
-  | { status: 'idle' }
-  | { status: 'loading' }
-  | { status: 'streaming'; content: string }
-  | { status: 'complete'; content: string }
-  | { status: 'error'; message: string };
+import { useSynthesis } from '../hooks/useSynthesis';
 
 interface SynthesisViewProps {
   anchorKey: string;
@@ -20,85 +12,22 @@ interface SynthesisViewProps {
   onRequest?: () => Promise<void>;
 }
 
-
-function mapError(backendError: string): string {
-  if (backendError.includes('NoConnectivity') || backendError.includes('NO_CONNECTIVITY'))
-    return 'Sin conexión — el proxy no está disponible.';
-  if (backendError.includes('RateLimitExceeded') || backendError.includes('RATE_LIMIT_EXCEEDED'))
-    return 'Has alcanzado el límite de 5 síntesis al mes.';
-  if (backendError.includes('InvalidToken') || backendError.includes('INVALID_TOKEN'))
-    return 'Token de acceso no válido. Contacta con el equipo.';
-  if (backendError.includes('NoConsent') || backendError.includes('NO_CONSENT'))
-    return 'Activa la síntesis desde el Privacy Dashboard primero.';
-  return 'El servicio de síntesis no está disponible temporalmente.';
-}
-
 export function SynthesisView(props: SynthesisViewProps) {
   const { anchorKey, anchorType, category, synthesisType, titles, domains, onRequest } = props;
-  const [state, setState] = useState<SynthesisState>({ status: 'idle' });
+  const { state, generate } = useSynthesis(anchorKey);
   const [copied, setCopied] = useState(false);
 
   const handleGenerate = useCallback(async () => {
-    setState({ status: 'loading' });
-    try {
-      await invoke('generate_synthesis', {
-        category,
-        titles,
-        domains,
-        synthesisType,
-        anchorKey,
-        anchorType,
-      });
-    } catch (e) {
-      setState({ status: 'error', message: mapError(String(e)) });
-    }
-  }, [anchorKey, anchorType, category, synthesisType, titles, domains]);
+    await generate({ category, titles, domains, synthesisType, anchorType });
+  }, [generate, category, titles, domains, synthesisType, anchorType]);
 
   // Auto-generar en Autonomous (sin onRequest)
   useEffect(() => {
     if (onRequest === undefined) {
-      handleGenerate();
+      generate({ category, titles, domains, synthesisType, anchorType });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  useEffect(() => {
-    let unlistenChunk: (() => void) | undefined;
-    let unlistenComplete: (() => void) | undefined;
-    let unlistenError: (() => void) | undefined;
-    let contentAccum = '';
-
-    (async () => {
-      unlistenChunk = await listen<{ anchor_key: string; chunk: string }>(
-        'synthesis_chunk',
-        (event) => {
-          if (event.payload.anchor_key !== anchorKey) return;
-          contentAccum += event.payload.chunk;
-          setState({ status: 'streaming', content: contentAccum });
-        }
-      );
-      unlistenComplete = await listen<{ anchor_key: string }>(
-        'synthesis_complete',
-        (event) => {
-          if (event.payload.anchor_key !== anchorKey) return;
-          setState({ status: 'complete', content: contentAccum });
-        }
-      );
-      unlistenError = await listen<{ anchor_key: string; error: string }>(
-        'synthesis_error',
-        (event) => {
-          if (event.payload.anchor_key !== anchorKey) return;
-          setState({ status: 'error', message: mapError(event.payload.error) });
-        }
-      );
-    })();
-
-    return () => {
-      unlistenChunk?.();
-      unlistenComplete?.();
-      unlistenError?.();
-    };
-  }, [anchorKey]);
 
   async function copyToClipboard(content: string) {
     await navigator.clipboard.writeText(content);
