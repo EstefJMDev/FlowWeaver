@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { Episode } from "../types";
 import { SynthesisConsentModal } from './SynthesisConsentModal';
+import { renderMarkdown } from '../utils/renderMarkdown';
 
 const SYNTHESIS_CATEGORY_MAP: Record<string, string> = {
   cocina: 'cocina', recetas: 'cocina', gastronomia: 'cocina',
@@ -20,14 +21,6 @@ function mapCategory(category: string): string {
   return SYNTHESIS_CATEGORY_MAP[category.toLowerCase()] ?? 'noticias';
 }
 
-function renderMarkdown(text: string): string {
-  return text
-    .replace(/^#### (.+)$/gm, '<h4>$1</h4>')
-    .replace(/^### (.+)$/gm, '<h3>$1</h3>')
-    .replace(/^## (.+)$/gm, '<h2>$1</h2>')
-    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\n/g, '<br/>');
-}
 
 function EpisodeSynthesisButton({ episode }: { episode: Episode }) {
   const [status, setStatus] = useState<'idle' | 'loading' | 'streaming' | 'complete' | 'error'>('idle');

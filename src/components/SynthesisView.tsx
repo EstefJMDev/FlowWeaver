@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import { renderMarkdown } from '../utils/renderMarkdown';
 
 type SynthesisState =
   | { status: 'idle' }
@@ -19,12 +20,6 @@ interface SynthesisViewProps {
   onRequest?: () => Promise<void>;
 }
 
-function renderMarkdown(text: string): string {
-  return text
-    .replace(/^## (.+)$/gm, '<h2>$1</h2>')
-    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\n/g, '<br/>');
-}
 
 function mapError(backendError: string): string {
   if (backendError.includes('NoConnectivity') || backendError.includes('NO_CONNECTIVITY'))

@@ -29,10 +29,6 @@ function mapCategoryToSynthesisType(category: string): string {
   return SYNTHESIS_CATEGORY_MAP[category.toLowerCase()] ?? 'noticias';
 }
 
-function categoryHasDirectMapping(category: string): boolean {
-  return category.toLowerCase() in SYNTHESIS_CATEGORY_MAP;
-}
-
 interface Props {
   episodes: Episode[];
 }
@@ -136,12 +132,6 @@ export function AnticipatedWorkspace({ episodes }: Props) {
           })}
         </ul>
       </div>
-
-      {import.meta.env.DEV && (trustState === 'Trusted' || trustState === 'Autonomous') && !categoryHasDirectMapping(category) && (
-        <div style={{ background: '#fff3cd', padding: '4px 8px', fontSize: 11, borderRadius: 4, margin: '4px 0' }}>
-          [DEV] categoría "{category}" sin mapeo directo → proxy usará 'noticias'
-        </div>
-      )}
 
       {(trustState === 'Trusted' || trustState === 'Autonomous') && (
         <SynthesisView
