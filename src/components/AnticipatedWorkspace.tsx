@@ -8,25 +8,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { Episode, TrustStateView, TrustStateEnum } from "../types";
 import { CATEGORY_TEMPLATES } from "../templates";
 import { SynthesisView } from './SynthesisView';
-
-const SYNTHESIS_CATEGORY_MAP: Record<string, string> = {
-  cocina:           'cocina',
-  recetas:          'cocina',
-  gastronomia:      'cocina',
-  entretenimiento:  'entretenimiento',
-  cine:             'entretenimiento',
-  musica:           'entretenimiento',
-  juegos:           'entretenimiento',
-  noticias:         'noticias',
-  actualidad:       'noticias',
-  tecnologia:       'tecnologia',
-  programacion:     'tecnologia',
-  desarrollo:       'tecnologia',
-};
-
-function mapCategoryToSynthesisType(category: string): string {
-  return SYNTHESIS_CATEGORY_MAP[category.toLowerCase()] ?? 'noticias';
-}
+import { mapCategoryToSynthesisType } from '../utils/synthesisCategory';
 
 interface Props {
   episodes: Episode[];

@@ -4,22 +4,7 @@ import { Episode } from "../types";
 import { SynthesisConsentModal } from './SynthesisConsentModal';
 import { renderMarkdown } from '../utils/renderMarkdown';
 import { useSynthesis } from '../hooks/useSynthesis';
-
-const SYNTHESIS_CATEGORY_MAP: Record<string, string> = {
-  cocina: 'cocina', recetas: 'cocina', gastronomia: 'cocina',
-  entretenimiento: 'entretenimiento', cine: 'entretenimiento',
-  musica: 'entretenimiento', juegos: 'entretenimiento',
-  noticias: 'noticias', actualidad: 'noticias',
-  tecnologia: 'tecnologia', programacion: 'tecnologia', desarrollo: 'tecnologia',
-};
-
-function canSynthesize(category: string): boolean {
-  return category.toLowerCase() in SYNTHESIS_CATEGORY_MAP;
-}
-
-function mapCategory(category: string): string {
-  return SYNTHESIS_CATEGORY_MAP[category.toLowerCase()] ?? 'noticias';
-}
+import { mapCategoryToSynthesisType, canSynthesize } from '../utils/synthesisCategory';
 
 function EpisodeSynthesisButton({ episode }: { episode: Episode }) {
   const { state, generate } = useSynthesis(episode.episode_id);
@@ -31,7 +16,7 @@ function EpisodeSynthesisButton({ episode }: { episode: Episode }) {
     category,
     titles: episode.resources.map(r => r.title),
     domains: episode.resources.map(r => r.domain),
-    synthesisType: mapCategory(category),
+    synthesisType: mapCategoryToSynthesisType(category),
     anchorType: 'session' as const,
   };
 
@@ -124,7 +109,7 @@ export function EpisodePanel({ episodes }: Props) {
               ))}
             </ul>
 
-            {ep.coherence === 1.0 && canSynthesize(category) && (
+            {ep.coherence >= 0.9 && canSynthesize(category) && (
               <EpisodeSynthesisButton episode={ep} />
             )}
           </div>
