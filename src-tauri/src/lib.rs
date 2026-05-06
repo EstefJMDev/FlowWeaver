@@ -10,6 +10,7 @@ mod pattern_detector;
 pub mod raw_event;
 mod session_builder;
 mod state_machine;
+mod synthesis_tokens;
 pub mod storage;
 mod trust_scorer;
 
@@ -146,6 +147,9 @@ pub fn run() {
             commands::configure_drive,
             commands::get_relay_device_id,
             commands::reclassify_all_resources, // TEMP: reclassify
+            commands::set_synthesis_token,
+            commands::get_synthesis_token_status,
+            commands::clear_synthesis_token,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

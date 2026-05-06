@@ -17,6 +17,7 @@ use crate::{
     session_builder,
     state_machine::{self, StateMachineConfig, TrustStateView, UserAction},
     storage::{Db, NewResource, PrivacyStats, Resource},
+    synthesis_tokens,
     trust_scorer::{self, TrustConfig},
 };
 
@@ -580,6 +581,76 @@ pub fn get_relay_device_id(app: tauri::AppHandle) -> String {
     "android-not-configured".to_string()
 }
 
+// ── Phase 3 — Synthesis Tokens (T-3-008) ──────────────────────────────────────
+
+#[derive(Debug, Serialize)]
+pub struct TokenStatus {
+    pub is_set: bool,
+}
+
+/// Persiste el install_token cifrado. Idempotente: sobreescribe si ya existe.
+/// El token se cifra con AES-256-GCM (local_key) — nunca se almacena en claro (D25).
+#[tauri::command]
+pub fn set_synthesis_token(
+    token: String,
+    state: State<'_, DbState>,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    let key = db_key(&app);
+    let encrypted = crypto::encrypt_aes(&token, &key);
+    let now_unix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .map_err(|e| e.to_string())?;
+    let db = state.0.lock().map_err(|e| e.to_string())?;
+    let conn = db.conn();
+    synthesis_tokens::ensure_schema(conn).map_err(|e| e.to_string())?;
+    synthesis_tokens::set_token(conn, &encrypted, now_unix).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Devuelve si hay token configurado. NUNCA devuelve el token en claro (D25).
+#[tauri::command]
+pub fn get_synthesis_token_status(
+    state: State<'_, DbState>,
+) -> Result<TokenStatus, String> {
+    let db = state.0.lock().map_err(|e| e.to_string())?;
+    let conn = db.conn();
+    synthesis_tokens::ensure_schema(conn).map_err(|e| e.to_string())?;
+    let is_set = synthesis_tokens::is_token_set(conn).map_err(|e| e.to_string())?;
+    Ok(TokenStatus { is_set })
+}
+
+/// Devuelve el token en claro para uso interno exclusivo de synthesis_engine.
+/// pub(crate): no se registra en invoke_handler. Solo synthesis_engine.rs lo consume.
+/// Recibe &Connection directamente para evitar doble lock desde synthesis_engine.
+pub(crate) fn get_synthesis_token_plain(
+    conn: &rusqlite::Connection,
+    app: &tauri::AppHandle,
+) -> Result<Option<String>, String> {
+    synthesis_tokens::ensure_schema(conn).map_err(|e| e.to_string())?;
+    match synthesis_tokens::get_token(conn).map_err(|e| e.to_string())? {
+        None => Ok(None),
+        Some(encrypted) => {
+            let key = db_key(app);
+            let plain = crypto::decrypt_any(&encrypted, &key);
+            Ok(plain)
+        }
+    }
+}
+
+/// Elimina el token (desactivación de síntesis desde Privacy Dashboard).
+#[tauri::command]
+pub fn clear_synthesis_token(
+    state: State<'_, DbState>,
+) -> Result<(), String> {
+    let db = state.0.lock().map_err(|e| e.to_string())?;
+    let conn = db.conn();
+    synthesis_tokens::ensure_schema(conn).map_err(|e| e.to_string())?;
+    synthesis_tokens::clear_token(conn).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /// Derive the field-level encryption key for url/title in SQLite.
@@ -902,6 +973,7 @@ mod tests {
 
     use crate::pattern_detector::PatternConfig;
     use crate::state_machine::StateMachineConfig;
+    use crate::synthesis_tokens;
 
     const TEST_NOW: i64 = 1_714_000_000_i64;
 
@@ -1084,6 +1156,19 @@ mod tests {
         for dom in &stats.domains {
             assert!(!dom.domain.contains("title"), "D1: domain no contiene title");
         }
+    }
+
+    #[test]
+    fn test_synthesis_token_round_trip() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        synthesis_tokens::ensure_schema(&conn).unwrap();
+        assert!(!synthesis_tokens::is_token_set(&conn).unwrap());
+        synthesis_tokens::set_token(&conn, "encrypted-placeholder", 1_000_000).unwrap();
+        assert!(synthesis_tokens::is_token_set(&conn).unwrap());
+        let stored = synthesis_tokens::get_token(&conn).unwrap();
+        assert_eq!(stored, Some("encrypted-placeholder".to_string()));
+        synthesis_tokens::clear_token(&conn).unwrap();
+        assert!(!synthesis_tokens::is_token_set(&conn).unwrap());
     }
 
     /// Elemento 2: lista de mecanismos activos (PatternSummary) con recursos
