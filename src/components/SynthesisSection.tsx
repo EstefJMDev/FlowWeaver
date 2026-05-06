@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { SynthesisOnboarding } from './SynthesisOnboarding';
+import { SynthesisConsentModal } from './SynthesisConsentModal';
 
 interface SynthesisUsage {
   used_this_month: number;
@@ -10,6 +11,7 @@ interface SynthesisUsage {
 
 export function SynthesisSection() {
   const [usage, setUsage] = useState<SynthesisUsage | null>(null);
+  const [showConsentModal, setShowConsentModal] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
 
   function refresh() {
@@ -22,16 +24,19 @@ export function SynthesisSection() {
 
   async function handleToggle(e: React.ChangeEvent<HTMLInputElement>) {
     if (!e.target.checked) {
+      // Desactivar: confirm → clear token y revocar consent
       const ok = confirm(
-        "Al desactivar la síntesis, tu token de acceso beta se eliminará " +
-        "de este dispositivo. Necesitarás introducirlo de nuevo para reactivarla. " +
+        "Al desactivar la síntesis, tu token de acceso beta y el consentimiento se eliminarán " +
+        "de este dispositivo. Necesitarás activarlo de nuevo para usarlo. " +
         "¿Confirmas?"
       );
       if (!ok) return;
       await invoke("clear_synthesis_token").catch(() => null);
+      await invoke("revoke_synthesis_consent").catch(() => null);
       refresh();
     } else {
-      setShowOnboarding(true);
+      // Activar: consent modal primero, luego onboarding
+      setShowConsentModal(true);
     }
   }
 
@@ -76,7 +81,7 @@ export function SynthesisSection() {
           aria-describedby="synthesis-toggle-desc"
         />
         <span id="synthesis-toggle-desc" className="synthesis__toggle-note">
-          Al desactivar, tu token de acceso se elimina de este dispositivo.
+          Al desactivar, tu token de acceso y el consentimiento se eliminan de este dispositivo.
         </span>
       </div>
 
@@ -87,7 +92,17 @@ export function SynthesisSection() {
         </p>
       )}
 
-      {/* Onboarding condicional — mostrado al activar */}
+      {/* Flujo de activación: consent modal → onboarding (en serie) */}
+      {showConsentModal && (
+        <SynthesisConsentModal
+          onAccept={() => {
+            setShowConsentModal(false);
+            setShowOnboarding(true);
+          }}
+          onDecline={() => setShowConsentModal(false)}
+        />
+      )}
+
       {showOnboarding && (
         <SynthesisOnboarding
           onComplete={() => { setShowOnboarding(false); refresh(); }}

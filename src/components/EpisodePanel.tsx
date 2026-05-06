@@ -24,6 +24,7 @@ function mapCategory(category: string): string {
 function EpisodeSynthesisButton({ episode }: { episode: Episode }) {
   const { state, generate } = useSynthesis(episode.episode_id);
   const [showConsent, setShowConsent] = useState(false);
+  const [redirectNote, setRedirectNote] = useState(false);
 
   const category = episode.resources[0]?.category ?? 'otro';
   const payload = {
@@ -65,9 +66,14 @@ function EpisodeSynthesisButton({ episode }: { episode: Episode }) {
         </div>
       )}
       {state.status === 'error' && <p style={{ color: '#f88' }}>{state.message}</p>}
+      {redirectNote && (
+        <p className="episode-card__redirect-note">
+          Para activar la síntesis, ve al Panel de Privacidad (🔒) y activa el toggle.
+        </p>
+      )}
       {showConsent && (
         <SynthesisConsentModal
-          onAccept={() => { setShowConsent(false); generate(payload); }}
+          onAccept={() => { setShowConsent(false); setRedirectNote(true); }}
           onDecline={() => setShowConsent(false)}
         />
       )}

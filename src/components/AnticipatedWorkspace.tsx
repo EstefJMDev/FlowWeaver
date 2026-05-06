@@ -8,7 +8,6 @@ import { invoke } from '@tauri-apps/api/core';
 import { Episode, TrustStateView, TrustStateEnum } from "../types";
 import { CATEGORY_TEMPLATES } from "../templates";
 import { SynthesisView } from './SynthesisView';
-import { SynthesisConsentModal } from './SynthesisConsentModal';
 
 const SYNTHESIS_CATEGORY_MAP: Record<string, string> = {
   cocina:           'cocina',
@@ -35,7 +34,7 @@ interface Props {
 
 export function AnticipatedWorkspace({ episodes }: Props) {
   const [trustState, setTrustState] = useState<TrustStateEnum | null>(null);
-  const [showConsent, setShowConsent] = useState(false);
+  const [redirectNote, setRedirectNote] = useState(false);
 
   useEffect(() => {
     invoke<TrustStateView>('get_trust_state')
@@ -78,13 +77,14 @@ export function AnticipatedWorkspace({ episodes }: Props) {
     domains:       ep.resources.map(r => r.domain),
   };
 
+  // Defensa en profundidad (D25): si consent falta al pulsar Generar,
+  // redirige al Privacy Dashboard en lugar de intentar grabar consent aquí.
   async function handleGenerateRequest() {
     const consent = await invoke<{ has_consent: boolean }>('check_synthesis_consent');
     if (!consent.has_consent) {
-      setShowConsent(true);
+      setRedirectNote(true);
       throw new Error('consent needed');
     }
-    // Si hay consentimiento, retorna normalmente → handleGenerate se ejecuta
   }
 
   return (
@@ -133,19 +133,16 @@ export function AnticipatedWorkspace({ episodes }: Props) {
         </ul>
       </div>
 
+      {redirectNote && (
+        <p className="anticipated-workspace__redirect-note">
+          Para activar la síntesis, ve al Panel de Privacidad (🔒) y activa el toggle.
+        </p>
+      )}
+
       {(trustState === 'Trusted' || trustState === 'Autonomous') && (
         <SynthesisView
           {...synthesisProps}
           onRequest={trustState === 'Trusted' ? handleGenerateRequest : undefined}
-        />
-      )}
-
-      {showConsent && (
-        <SynthesisConsentModal
-          onAccept={() => {
-            setShowConsent(false);
-          }}
-          onDecline={() => setShowConsent(false)}
         />
       )}
     </section>

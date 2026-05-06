@@ -19,6 +19,8 @@ export function SynthesisOnboarding({ onComplete, onSkip }: Props) {
     setStatus('saving');
     setErrorMsg('');
     try {
+      // record_synthesis_consent primero — si falla, no se guarda el token
+      await invoke('record_synthesis_consent');
       await invoke('set_synthesis_token', { token: trimmed });
       onComplete();
     } catch (e) {

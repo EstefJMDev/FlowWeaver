@@ -1,24 +1,18 @@
 import { useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
 
 interface SynthesisConsentModalProps {
   onAccept: () => void;
   onDecline: () => void;
 }
 
+// record_synthesis_consent se llama en SynthesisOnboarding.handleActivate,
+// no aquí. El modal solo confirma que el usuario leyó el aviso de privacidad.
 export function SynthesisConsentModal(props: SynthesisConsentModalProps) {
   const [pending, setPending] = useState(false);
 
-  async function handleAccept() {
+  function handleAccept() {
     setPending(true);
-    try {
-      await invoke('record_synthesis_consent');
-      props.onAccept();
-    } catch {
-      // error de red/BD: no cerrar el modal, permitir reintento
-    } finally {
-      setPending(false);
-    }
+    props.onAccept();
   }
 
   return (
@@ -47,7 +41,7 @@ export function SynthesisConsentModal(props: SynthesisConsentModalProps) {
             disabled={pending}
             className="consent-modal__accept"
           >
-            {pending ? 'Activando…' : 'Activar síntesis'}
+            {pending ? 'Continuando…' : 'Continuar'}
           </button>
           <button
             onClick={props.onDecline}
