@@ -62,7 +62,7 @@ impl Db {
     pub fn open(path: &Path, key: &str) -> Result<Self> {
         let conn = Connection::open(path)?;
         #[cfg(not(target_os = "android"))]
-        conn.execute_batch(&format!("PRAGMA key = '{key}';"))?;
+        conn.pragma_update(None, "key", &key)?;
         let _ = key; // unused on Android — field-level XOR in crypto.rs covers D1
         conn.execute_batch("PRAGMA journal_mode = WAL;")?;
         Ok(Self { conn })
