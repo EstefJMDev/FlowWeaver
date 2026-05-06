@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
 import { Episode } from "../types";
 import { SynthesisConsentModal } from './SynthesisConsentModal';
 import { renderMarkdown } from '../utils/renderMarkdown';
+import { useSynthesis } from '../hooks/useSynthesis';
 
 const SYNTHESIS_CATEGORY_MAP: Record<string, string> = {
   cocina: 'cocina', recetas: 'cocina', gastronomia: 'cocina',
@@ -21,12 +21,18 @@ function mapCategory(category: string): string {
   return SYNTHESIS_CATEGORY_MAP[category.toLowerCase()] ?? 'noticias';
 }
 
-
 function EpisodeSynthesisButton({ episode }: { episode: Episode }) {
-  const [status, setStatus] = useState<'idle' | 'loading' | 'streaming' | 'complete' | 'error'>('idle');
-  const [content, setContent] = useState('');
-  const [error, setError] = useState('');
+  const { state, generate } = useSynthesis(episode.episode_id);
   const [showConsent, setShowConsent] = useState(false);
+
+  const category = episode.resources[0]?.category ?? 'otro';
+  const payload = {
+    category,
+    titles: episode.resources.map(r => r.title),
+    domains: episode.resources.map(r => r.domain),
+    synthesisType: mapCategory(category),
+    anchorType: 'session' as const,
+  };
 
   async function handleClick() {
     try {
@@ -36,77 +42,32 @@ function EpisodeSynthesisButton({ episode }: { episode: Episode }) {
         return;
       }
     } catch { return; }
-    generate();
-  }
-
-  async function generate() {
-    setStatus('loading');
-    setContent('');
-    const category = episode.resources[0]?.category ?? 'otro';
-
-    let contentAccum = '';
-    const unlisten1 = await listen<{ anchor_key: string; chunk: string }>(
-      'synthesis_chunk', (e) => {
-        if (e.payload.anchor_key !== episode.episode_id) return;
-        contentAccum += e.payload.chunk;
-        setContent(contentAccum);
-        setStatus('streaming');
-      }
-    );
-    const unlisten2 = await listen<{ anchor_key: string }>(
-      'synthesis_complete', (e) => {
-        if (e.payload.anchor_key !== episode.episode_id) return;
-        setStatus('complete');
-        unlisten1(); unlisten2(); unlisten3();
-      }
-    );
-    const unlisten3 = await listen<{ anchor_key: string; error: string }>(
-      'synthesis_error', (e) => {
-        if (e.payload.anchor_key !== episode.episode_id) return;
-        setError(e.payload.error);
-        setStatus('error');
-        unlisten1(); unlisten2(); unlisten3();
-      }
-    );
-
-    try {
-      await invoke('generate_synthesis', {
-        category,
-        titles: episode.resources.map(r => r.title),
-        domains: episode.resources.map(r => r.domain),
-        synthesisType: mapCategory(category),
-        anchorKey: episode.episode_id,
-        anchorType: 'session',
-      });
-    } catch (e) {
-      setError(String(e));
-      setStatus('error');
-      unlisten1(); unlisten2(); unlisten3();
-    }
+    generate(payload);
   }
 
   return (
     <div className="episode-card__synthesis">
-      {status === 'idle' && (
+      {state.status === 'idle' && (
         <button className="episode-card__synth-btn" onClick={handleClick}>
           Generar síntesis
         </button>
       )}
-      {status === 'loading' && <p>Generando síntesis…</p>}
-      {(status === 'streaming' || status === 'complete') && (
+      {state.status === 'loading' && <p>Generando síntesis…</p>}
+      {state.status === 'streaming' && (
+        <div dangerouslySetInnerHTML={{ __html: renderMarkdown(state.content) }} />
+      )}
+      {state.status === 'complete' && (
         <div>
-          <div dangerouslySetInnerHTML={{ __html: renderMarkdown(content) }} />
-          {status === 'complete' && (
-            <button onClick={() => navigator.clipboard.writeText(content)}>
-              Copiar
-            </button>
-          )}
+          <div dangerouslySetInnerHTML={{ __html: renderMarkdown(state.content) }} />
+          <button onClick={() => navigator.clipboard.writeText(state.content)}>
+            Copiar
+          </button>
         </div>
       )}
-      {status === 'error' && <p style={{ color: '#f88' }}>{error}</p>}
+      {state.status === 'error' && <p style={{ color: '#f88' }}>{state.message}</p>}
       {showConsent && (
         <SynthesisConsentModal
-          onAccept={() => { setShowConsent(false); generate(); }}
+          onAccept={() => { setShowConsent(false); generate(payload); }}
           onDecline={() => setShowConsent(false)}
         />
       )}
