@@ -1,7 +1,10 @@
 // FS Watcher: detecta eventos de archivo en sesión activa.
 // Distinto de pattern_detector.rs (patrones longitudinales) y de
 // episode_detector.rs (episodios de sesión activa sin estado) — R12.
-// Opera solo mientras la app está en primer plano (D9).
+// Opera en modo background-persistent: una vez arrancado por foco inicial,
+// sigue activo mientras haya directorios activos, también si la app pierde
+// foco (D9 revisada 2026-04-28). Solo se detiene al cerrar la app o al
+// desactivar todos los directorios.
 // Solo registra nombre del archivo (cifrado D1), directorio padre
 // (en claro), extensión (en claro) y timestamp. Nunca lee contenido
 // (D1 — prohibición permanente).
@@ -13,7 +16,7 @@
 // | Input           | inotify/RDCW/FSE    | SQLCipher resources   | Stream de captures    |
 // | Output          | FsWatcherEvent      | DetectedPattern       | Episode (memoria)     |
 // | Persistencia    | Solo configuración  | Patrones detectados   | Sin estado            |
-// | Foreground-only | Sí (D9 absoluto)    | No aplica             | No aplica             |
+// | Background      | Persistente (D9 rev)| No aplica             | No aplica             |
 // | Decisión clave  | D9                  | D17                   | (heredado Fase 1)     |
 
 use rusqlite::Connection;
