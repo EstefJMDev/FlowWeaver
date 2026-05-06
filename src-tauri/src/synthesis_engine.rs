@@ -91,7 +91,12 @@ fn parse_sse_chunk(line: &str) -> Option<String> {
             if v.get("error").is_some() {
                 return None;
             }
-            return v["chunk"].as_str().map(String::from);
+            return match &v["chunk"] {
+                serde_json::Value::String(s) => Some(s.clone()),
+                serde_json::Value::Number(n) => Some(n.to_string()),
+                serde_json::Value::Bool(b)   => Some(b.to_string()),
+                _ => None,
+            };
         }
     }
     None
@@ -227,4 +232,37 @@ pub async fn generate_and_persist(
     .map_err(SynthesisError::Persistence)?;
 
     Ok(anchor_key.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_sse_chunk;
+
+    #[test]
+    fn test_parse_sse_chunk_handles_numeric() {
+        // Chunk numérico (Cloudflare AI emite {"chunk": 30} para cantidades)
+        assert_eq!(
+            parse_sse_chunk(r#"data: {"chunk": 30}"#),
+            Some("30".to_string())
+        );
+        // Chunk string normal
+        assert_eq!(
+            parse_sse_chunk(r#"data: {"chunk": "texto"}"#),
+            Some("texto".to_string())
+        );
+        // Chunk booleano
+        assert_eq!(
+            parse_sse_chunk(r#"data: {"chunk": true}"#),
+            Some("true".to_string())
+        );
+        // [DONE] → None
+        assert_eq!(parse_sse_chunk("data: [DONE]"), None);
+        // Error en payload → None
+        assert_eq!(
+            parse_sse_chunk(r#"data: {"error": "PROVIDER_UNAVAILABLE"}"#),
+            None
+        );
+        // Chunk null → None
+        assert_eq!(parse_sse_chunk(r#"data: {"chunk": null}"#), None);
+    }
 }
