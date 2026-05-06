@@ -10,6 +10,24 @@ import { CATEGORY_TEMPLATES } from "../templates";
 import { SynthesisView } from './SynthesisView';
 import { SynthesisConsentModal } from './SynthesisConsentModal';
 
+function mapCategoryToSynthesisType(category: string): string {
+  const map: Record<string, string> = {
+    cocina:           'cocina',
+    recetas:          'cocina',
+    gastronomia:      'cocina',
+    entretenimiento:  'entretenimiento',
+    cine:             'entretenimiento',
+    musica:           'entretenimiento',
+    juegos:           'entretenimiento',
+    noticias:         'noticias',
+    actualidad:       'noticias',
+    tecnologia:       'tecnologia',
+    programacion:     'tecnologia',
+    desarrollo:       'tecnologia',
+  };
+  return map[category.toLowerCase()] ?? 'noticias';
+}
+
 interface Props {
   episodes: Episode[];
 }
@@ -40,7 +58,7 @@ export function AnticipatedWorkspace({ episodes }: Props) {
     anchorKey:     ep.episode_id,
     anchorType:    'session' as const,
     category:      category,
-    synthesisType: category,
+    synthesisType: mapCategoryToSynthesisType(category),
     titles:        ep.resources.map(r => r.title),
     domains:       ep.resources.map(r => r.domain),
   };
