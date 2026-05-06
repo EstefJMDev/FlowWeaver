@@ -1330,3 +1330,13 @@ body { min-height: 100vh; }
 .mobile-privacy__clear-btn:hover { background: rgba(224, 96, 96, 0.1); }
 .mobile-privacy__clear-btn:active { background: rgba(224, 96, 96, 0.2); }
 .mobile-privacy__clear-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Disclaimer síntesis IA */
+.synthesis-view__disclaimer {
+  font-size: 0.8em;
+  color: #888;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  line-height: 1.4;
+}

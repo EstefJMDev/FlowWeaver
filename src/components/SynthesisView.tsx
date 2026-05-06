@@ -90,6 +90,10 @@ export function SynthesisView(props: SynthesisViewProps) {
           className="synthesis-view__content"
           dangerouslySetInnerHTML={{ __html: renderMarkdown(state.content) }}
         />
+        <p className="synthesis-view__disclaimer">
+          Síntesis generada por IA. La información puede contener errores.
+          Verifica datos críticos antes de tomar decisiones.
+        </p>
         <div className="synthesis-view__actions">
           <button
             className="synthesis-view__copy"
