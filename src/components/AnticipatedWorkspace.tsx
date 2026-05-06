@@ -3,14 +3,27 @@
 /// Only renders when at least one Precise episode exists.
 /// Connects Episode Detector output to Panel C's template system (episode-scoped).
 
-import { Episode } from "../types";
+import { useState, useEffect } from 'react';
+import { invoke } from '@tauri-apps/api/core';
+import { Episode, TrustStateView, TrustStateEnum } from "../types";
 import { CATEGORY_TEMPLATES } from "../templates";
+import { SynthesisView } from './SynthesisView';
+import { SynthesisConsentModal } from './SynthesisConsentModal';
 
 interface Props {
   episodes: Episode[];
 }
 
 export function AnticipatedWorkspace({ episodes }: Props) {
+  const [trustState, setTrustState] = useState<TrustStateEnum | null>(null);
+  const [showConsent, setShowConsent] = useState(false);
+
+  useEffect(() => {
+    invoke<TrustStateView>('get_trust_state')
+      .then(v => setTrustState(v.current_state))
+      .catch(() => null);
+  }, []);
+
   const preciseEpisodes = episodes
     .filter((e) => e.mode === "Precise")
     .sort((a, b) => b.coherence - a.coherence);
@@ -22,6 +35,28 @@ export function AnticipatedWorkspace({ episodes }: Props) {
   const actions = (CATEGORY_TEMPLATES[category] ?? CATEGORY_TEMPLATES.otro).slice(0, 3);
   const preview = ep.resources.slice(0, 3);
   const extra = ep.resources.length - preview.length;
+
+  const synthesisProps = {
+    anchorKey:     ep.episode_id,
+    anchorType:    'session' as const,
+    category:      category,
+    synthesisType: category,
+    titles:        ep.resources.map(r => r.title),
+    domains:       ep.resources.map(r => r.domain),
+  };
+
+  async function handleGenerateRequest() {
+    try {
+      const consent = await invoke<{ has_consent: boolean }>('check_synthesis_consent');
+      if (!consent.has_consent) {
+        setShowConsent(true);
+        return;
+      }
+      // Si hay consentimiento, SynthesisView.handleGenerate lo invocará solo
+    } catch {
+      // ignorar
+    }
+  }
 
   return (
     <section className="anticipated-workspace" aria-label="Workspace anticipatorio">
@@ -68,6 +103,22 @@ export function AnticipatedWorkspace({ episodes }: Props) {
           })}
         </ul>
       </div>
+
+      {(trustState === 'Trusted' || trustState === 'Autonomous') && (
+        <SynthesisView
+          {...synthesisProps}
+          onRequest={trustState === 'Trusted' ? handleGenerateRequest : undefined}
+        />
+      )}
+
+      {showConsent && (
+        <SynthesisConsentModal
+          onAccept={() => {
+            setShowConsent(false);
+          }}
+          onDecline={() => setShowConsent(false)}
+        />
+      )}
     </section>
   );
 }
