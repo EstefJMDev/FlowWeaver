@@ -83,16 +83,12 @@ export function AnticipatedWorkspace({ episodes }: Props) {
   };
 
   async function handleGenerateRequest() {
-    try {
-      const consent = await invoke<{ has_consent: boolean }>('check_synthesis_consent');
-      if (!consent.has_consent) {
-        setShowConsent(true);
-        return;
-      }
-      // Si hay consentimiento, SynthesisView.handleGenerate lo invocará solo
-    } catch {
-      // ignorar
+    const consent = await invoke<{ has_consent: boolean }>('check_synthesis_consent');
+    if (!consent.has_consent) {
+      setShowConsent(true);
+      throw new Error('consent needed');
     }
+    // Si hay consentimiento, retorna normalmente → handleGenerate se ejecuta
   }
 
   return (

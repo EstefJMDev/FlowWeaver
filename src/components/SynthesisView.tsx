@@ -16,7 +16,7 @@ interface SynthesisViewProps {
   synthesisType: string;
   titles: string[];
   domains: string[];
-  onRequest?: () => void;
+  onRequest?: () => Promise<void>;
 }
 
 function renderMarkdown(text: string): string {
@@ -125,7 +125,10 @@ export function SynthesisView(props: SynthesisViewProps) {
     if (onRequest === undefined) return null;
     return (
       <div className="synthesis-view synthesis-view--idle">
-        <button className="synthesis-view__generate" onClick={onRequest ?? handleGenerate}>
+        <button className="synthesis-view__generate" onClick={async () => {
+          await onRequest();
+          handleGenerate();
+        }}>
           Generar síntesis
         </button>
       </div>
