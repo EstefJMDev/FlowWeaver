@@ -1,6 +1,6 @@
 /// Anticipated Workspace — Phase 0b.
-/// Surfaces the single most actionable precise episode as a focused action zone.
-/// Only renders when at least one Precise episode exists.
+/// Surfaces the single most actionable episode (Precise preferred, Broad fallback)
+/// Only renders when at least one episode exists.
 /// Connects Episode Detector output to Panel C's template system (episode-scoped).
 
 import { useState, useEffect } from 'react';
@@ -47,13 +47,27 @@ export function AnticipatedWorkspace({ episodes }: Props) {
       .catch(() => null);
   }, []);
 
-  const preciseEpisodes = episodes
-    .filter((e) => e.mode === "Precise")
-    .sort((a, b) => b.window_end - a.window_end);
+  function latestCapture(ep: Episode): number {
+    return Math.max(...ep.resources.map(r => r.captured_at), 0);
+  }
 
-  if (preciseEpisodes.length === 0) return null;
+  const sortedEpisodes = [...episodes].sort(
+    (a, b) => latestCapture(b) - latestCapture(a)
+  );
 
-  const ep = preciseEpisodes[0];
+  const bestPrecise = sortedEpisodes.find(e => e.mode === "Precise");
+  const bestBroad   = sortedEpisodes.find(e => e.mode === "Broad");
+
+  let ep: Episode | undefined;
+  if (bestPrecise && bestBroad) {
+    ep = latestCapture(bestPrecise) >= latestCapture(bestBroad)
+      ? bestPrecise
+      : bestBroad;
+  } else {
+    ep = bestPrecise ?? bestBroad;
+  }
+
+  if (!ep) return null;
   const category = ep.resources[0]?.category ?? "otro";
   const actions = (CATEGORY_TEMPLATES[category] ?? CATEGORY_TEMPLATES.otro).slice(0, 3);
   const preview = ep.resources.slice(0, 3);
