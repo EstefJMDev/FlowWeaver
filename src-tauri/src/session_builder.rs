@@ -47,7 +47,7 @@ pub fn build_sessions(db: &Db, key: &str) -> Result<Vec<Session>, String> {
         .into_iter()
         .map(|r| SessionResource {
             uuid: r.uuid,
-            title: crypto::decrypt(&r.title, key).unwrap_or_else(|| r.domain.clone()),
+            title: crypto::decrypt_any(&r.title, key).unwrap_or_else(|| r.domain.clone()),
             url: crypto::decrypt_any(&r.url, key).unwrap_or_default(),
             domain: r.domain,
             category: r.category,
