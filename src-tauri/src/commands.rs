@@ -4,6 +4,7 @@ use uuid::Uuid;
 
 use crate::{
     classifier,
+    consent_log_store,
     crypto,
     episode_detector,
     fs_watcher::{
@@ -17,9 +18,13 @@ use crate::{
     session_builder,
     state_machine::{self, StateMachineConfig, TrustStateView, UserAction},
     storage::{Db, NewResource, PrivacyStats, Resource},
+    syntheses_store,
     synthesis_tokens,
     trust_scorer::{self, TrustConfig},
 };
+
+#[cfg(not(target_os = "android"))]
+use crate::synthesis_engine::{self, SynthesisType};
 
 pub struct DbState(pub std::sync::Mutex<Db>);
 
@@ -651,6 +656,161 @@ pub fn clear_synthesis_token(
     Ok(())
 }
 
+// ── Phase 3 — Synthesis Engine (T-3-009) ──────────────────────────────────────
+
+#[derive(Debug, Serialize)]
+pub struct SynthesisUsage {
+    pub used_this_month:  u32,
+    pub limit_this_month: u32,
+    pub synthesis_active: bool,
+}
+
+/// Genera una síntesis LLM y la persiste cifrada en SQLCipher.
+/// Precondiciones: estado SM ≥ Trusted (D4), consentimiento synthesis_v1 (D25),
+/// install_token configurado (T-3-008).
+#[tauri::command]
+pub async fn generate_synthesis(
+    state: State<'_, DbState>,
+    app: tauri::AppHandle,
+    category: String,
+    titles: Vec<String>,
+    domains: Vec<String>,
+    synthesis_type: String,
+    anchor_key: String,
+    anchor_type: String,
+) -> Result<(), String> {
+    #[cfg(target_os = "android")]
+    {
+        let _ = (state, app, category, titles, domains, synthesis_type, anchor_key, anchor_type);
+        return Err("synthesis not supported on Android".to_string());
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let st = match synthesis_type.as_str() {
+            "entretenimiento" => SynthesisType::Entretenimiento,
+            "cocina"          => SynthesisType::Cocina,
+            "noticias"        => SynthesisType::Noticias,
+            "tecnologia"      => SynthesisType::Tecnologia,
+            other             => return Err(format!("unknown synthesis_type: {other}")),
+        };
+
+        // Phase 1: sync pre-checks — drop lock before any .await (MutexGuard is !Send)
+        let (token, body, syn_type_str) = {
+            let db = state.0.lock().map_err(|e| e.to_string())?;
+            let conn = db.conn();
+
+            // D4: verificar estado SM ≥ Trusted
+            state_machine::ensure_schema(conn, 0).map_err(|e| e.to_string())?;
+            let (current, _) = state_machine::load_state(conn).map_err(|e| e.to_string())?;
+            if !matches!(
+                current,
+                state_machine::TrustStateEnum::Trusted | state_machine::TrustStateEnum::Autonomous
+            ) {
+                return Err("synthesis requires Trusted or Autonomous state".to_string());
+            }
+
+            // D25: verificar consentimiento antes de construir el payload
+            consent_log_store::ensure_schema(conn).map_err(|e| e.to_string())?;
+            if !consent_log_store::has_consent(conn, "synthesis", "synthesis_v1")
+                .map_err(|e| e.to_string())?
+            {
+                return Err(synthesis_engine::SynthesisError::NoConsent.to_string());
+            }
+
+            // Obtener token en claro
+            let token = get_synthesis_token_plain(conn, &app)?
+                .ok_or_else(|| synthesis_engine::SynthesisError::NoToken.to_string())?;
+
+            // Construir payload (PG-001: sin url ni title_raw)
+            let titles_ref: Vec<&str> = titles.iter().map(String::as_str).collect();
+            let domains_ref: Vec<&str> = domains.iter().map(String::as_str).collect();
+            let payload = synthesis_engine::build_synthesis_payload(
+                &category, &titles_ref, &domains_ref, st, "es",
+            );
+            let syn_type_str = payload.synthesis_type.clone();
+            let body = serde_json::to_string(&payload).map_err(|e| e.to_string())?;
+
+            (token, body, syn_type_str)
+        }; // MutexGuard dropped — seguro hacer .await después de este punto
+
+        // Phase 2: HTTP async call (sin lock, todos los datos son owned)
+        const PROXY_URL: &str =
+            "https://flowweaver-proxy.bananasplitsound.workers.dev/synthesize";
+
+        let full_content = synthesis_engine::fetch_from_proxy(
+            &token,
+            body,
+            PROXY_URL,
+            |_chunk| {
+                // T-3-010 conectará esto a Tauri events para streaming UI
+            },
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+
+        // Phase 3: persistir (re-adquirir lock)
+        {
+            let db = state.0.lock().map_err(|e| e.to_string())?;
+            let conn = db.conn();
+            let key = db_key(&app);
+            let encrypted = crypto::encrypt_aes(&full_content, &key);
+            let now_unix = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs() as i64)
+                .unwrap_or(0);
+            syntheses_store::ensure_schema(conn).map_err(|e| e.to_string())?;
+            syntheses_store::save(
+                conn,
+                &syntheses_store::SynthesisEntry {
+                    anchor_key:        anchor_key.clone(),
+                    anchor_type:       anchor_type.clone(),
+                    category:          category.clone(),
+                    synthesis_type:    syn_type_str,
+                    content_encrypted: encrypted,
+                    generated_at:      now_unix,
+                },
+            )
+            .map_err(|e| e.to_string())?;
+        }
+
+        Ok(())
+    }
+}
+
+/// Devuelve el uso de síntesis del mes actual (contador local).
+/// Usado por SynthesisSection.tsx (T-3-011).
+#[tauri::command]
+pub fn get_synthesis_usage(state: State<'_, DbState>) -> Result<SynthesisUsage, String> {
+    let db = state.0.lock().map_err(|e| e.to_string())?;
+    let conn = db.conn();
+    syntheses_store::ensure_schema(conn).map_err(|e| e.to_string())?;
+    synthesis_tokens::ensure_schema(conn).map_err(|e| e.to_string())?;
+    consent_log_store::ensure_schema(conn).map_err(|e| e.to_string())?;
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    let month_start = now - (now % (30 * 24 * 3600));
+    let used: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM syntheses WHERE generated_at >= ?1",
+            rusqlite::params![month_start],
+            |row| row.get(0),
+        )
+        .unwrap_or(0);
+
+    let token_set = synthesis_tokens::is_token_set(conn).unwrap_or(false);
+    let has_consent = consent_log_store::has_consent(conn, "synthesis", "synthesis_v1")
+        .unwrap_or(false);
+
+    Ok(SynthesisUsage {
+        used_this_month:  used as u32,
+        limit_this_month: 5,
+        synthesis_active: token_set && has_consent,
+    })
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /// Derive the field-level encryption key for url/title in SQLite.
@@ -659,7 +819,7 @@ pub fn clear_synthesis_token(
 /// Android: stable constant that matches FieldCrypto.FIELD_KEY_PASSPHRASE in Kotlin.
 ///   A path-based key on Android cannot be guaranteed to align with the Kotlin layer,
 ///   so a constant is used. The Android app data dir provides file system isolation.
-fn db_key(app: &tauri::AppHandle) -> String {
+pub(crate) fn db_key(app: &tauri::AppHandle) -> String {
     #[cfg(target_os = "android")]
     {
         let _ = app;
@@ -974,6 +1134,82 @@ mod tests {
     use crate::pattern_detector::PatternConfig;
     use crate::state_machine::StateMachineConfig;
     use crate::synthesis_tokens;
+
+    // ── Phase 3 — Synthesis Engine (T-3-009) tests ───────────────────────────
+
+    #[test]
+    fn pg_001_build_synthesis_payload_signature() {
+        use crate::synthesis_engine::{build_synthesis_payload, SynthesisType};
+        let payload = build_synthesis_payload(
+            "cocina",
+            &["Tarta de queso", "Brownie de chocolate"],
+            &["recetasdeescandalo.com", "elcomidista.es"],
+            SynthesisType::Cocina,
+            "es",
+        );
+        assert_eq!(payload.synthesis_type, "cocina");
+        assert_eq!(payload.titles.len(), 2);
+        assert_eq!(payload.domains.len(), 2);
+        assert_eq!(payload.prompt_version, "v1");
+        assert_eq!(payload.category, "cocina");
+        assert_eq!(payload.language, "es");
+    }
+
+    #[test]
+    fn test_synthesis_requires_consent() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        crate::consent_log_store::ensure_schema(&conn).unwrap();
+        let has = crate::consent_log_store::has_consent(&conn, "synthesis", "synthesis_v1").unwrap();
+        assert!(!has, "sin filas, has_consent debe ser false");
+
+        conn.execute(
+            "INSERT INTO consent_log (consent_type, consent_version, accepted_at)
+             VALUES ('synthesis', 'synthesis_v1', 1000)",
+            [],
+        ).unwrap();
+        let has = crate::consent_log_store::has_consent(&conn, "synthesis", "synthesis_v1").unwrap();
+        assert!(has, "con fila, has_consent debe ser true");
+    }
+
+    #[test]
+    fn test_syntheses_store_schema_idempotent() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        crate::syntheses_store::ensure_schema(&conn).unwrap();
+        crate::syntheses_store::ensure_schema(&conn).unwrap();
+    }
+
+    #[test]
+    fn test_syntheses_store_encrypted_content() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        crate::syntheses_store::ensure_schema(&conn).unwrap();
+        let entry = crate::syntheses_store::SynthesisEntry {
+            anchor_key:        "test-anchor".to_string(),
+            anchor_type:       "session".to_string(),
+            category:          "cocina".to_string(),
+            synthesis_type:    "cocina".to_string(),
+            content_encrypted: crate::crypto::encrypt_aes("contenido real", "test-key"),
+            generated_at:      1_000_000,
+        };
+        crate::syntheses_store::save(&conn, &entry).unwrap();
+        let stored = crate::syntheses_store::get_by_anchor(&conn, "test-anchor")
+            .unwrap()
+            .unwrap();
+        assert_ne!(stored.content_encrypted, "contenido real");
+        let decrypted = crate::crypto::decrypt_any(&stored.content_encrypted, "test-key").unwrap();
+        assert_eq!(decrypted, "contenido real");
+    }
+
+    #[test]
+    fn test_generate_synthesis_requires_trusted_state() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        crate::state_machine::ensure_schema(&conn, 0).unwrap();
+        let (current, _) = crate::state_machine::load_state(&conn).unwrap();
+        assert!(!matches!(
+            current,
+            crate::state_machine::TrustStateEnum::Trusted
+                | crate::state_machine::TrustStateEnum::Autonomous
+        ));
+    }
 
     const TEST_NOW: i64 = 1_714_000_000_i64;
 

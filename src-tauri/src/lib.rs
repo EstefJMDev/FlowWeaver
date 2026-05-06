@@ -1,5 +1,6 @@
 mod classifier;
 mod commands;
+mod consent_log_store;
 pub mod crypto;
 mod episode_detector;
 mod fs_watcher;
@@ -10,6 +11,9 @@ mod pattern_detector;
 pub mod raw_event;
 mod session_builder;
 mod state_machine;
+mod syntheses_store;
+#[cfg(not(target_os = "android"))]
+mod synthesis_engine;
 mod synthesis_tokens;
 pub mod storage;
 mod trust_scorer;
@@ -150,6 +154,8 @@ pub fn run() {
             commands::set_synthesis_token,
             commands::get_synthesis_token_status,
             commands::clear_synthesis_token,
+            commands::generate_synthesis,
+            commands::get_synthesis_usage,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
