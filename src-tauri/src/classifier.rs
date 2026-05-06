@@ -617,6 +617,7 @@ mod tests {
         // amazon.com (US) y amazon.es (ES) → ambos comercio, distintos exact.
         assert_eq!(classify("https://amazon.com/dp/x", None).category, "comercio");
         assert_eq!(classify("https://amazon.es/dp/x", None).category, "comercio");
+
     }
 
     // ── Capa A — T-3-006 (TS-3-006 §"Casos de test obligatorios") ──────────
