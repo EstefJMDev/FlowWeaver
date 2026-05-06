@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 
@@ -42,12 +42,8 @@ export function SynthesisView(props: SynthesisViewProps) {
   const { anchorKey, anchorType, category, synthesisType, titles, domains, onRequest } = props;
   const [state, setState] = useState<SynthesisState>({ status: 'idle' });
   const [copied, setCopied] = useState(false);
-  const contentRef = useRef('');
-  const listenersSetUp = useRef(false);
 
   const handleGenerate = useCallback(async () => {
-    if (onRequest) onRequest();
-    contentRef.current = '';
     setState({ status: 'loading' });
     try {
       await invoke('generate_synthesis', {
@@ -58,12 +54,10 @@ export function SynthesisView(props: SynthesisViewProps) {
         anchorKey,
         anchorType,
       });
-      // Estado lo actualiza listener synthesis_complete
     } catch (e) {
-      // Estado lo actualiza listener synthesis_error; fallback si no llega evento:
       setState({ status: 'error', message: mapError(String(e)) });
     }
-  }, [anchorKey, anchorType, category, synthesisType, titles, domains, onRequest]);
+  }, [anchorKey, anchorType, category, synthesisType, titles, domains]);
 
   // Auto-generar en Autonomous (sin onRequest)
   useEffect(() => {
@@ -73,43 +67,49 @@ export function SynthesisView(props: SynthesisViewProps) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Escuchar eventos Tauri — ref guard evita doble registro en StrictMode
+  // Escuchar eventos Tauri — flag stale elimina race condition de StrictMode
   useEffect(() => {
-    if (listenersSetUp.current) return;
-    listenersSetUp.current = true;
-
+    let stale = false;
     let unlistenChunk: (() => void) | undefined;
     let unlistenComplete: (() => void) | undefined;
     let unlistenError: (() => void) | undefined;
+    let contentAccum = '';
 
     (async () => {
       unlistenChunk = await listen<{ anchor_key: string; chunk: string }>(
         'synthesis_chunk',
         (event) => {
+          if (stale) return;
           if (event.payload.anchor_key !== anchorKey) return;
-          contentRef.current += event.payload.chunk;
-          setState({ status: 'streaming', content: contentRef.current });
+          contentAccum += event.payload.chunk;
+          setState({ status: 'streaming', content: contentAccum });
         }
       );
+      if (stale) { unlistenChunk(); return; }
+
       unlistenComplete = await listen<{ anchor_key: string }>(
         'synthesis_complete',
         (event) => {
+          if (stale) return;
           if (event.payload.anchor_key !== anchorKey) return;
-          setState({ status: 'complete', content: contentRef.current });
+          setState({ status: 'complete', content: contentAccum });
         }
       );
+      if (stale) { unlistenComplete(); return; }
+
       unlistenError = await listen<{ anchor_key: string; error: string }>(
         'synthesis_error',
         (event) => {
+          if (stale) return;
           if (event.payload.anchor_key !== anchorKey) return;
           setState({ status: 'error', message: mapError(event.payload.error) });
         }
       );
+      if (stale) { unlistenError(); return; }
     })();
 
     return () => {
-      listenersSetUp.current = false;
-      contentRef.current = '';
+      stale = true;
       unlistenChunk?.();
       unlistenComplete?.();
       unlistenError?.();
@@ -136,7 +136,7 @@ export function SynthesisView(props: SynthesisViewProps) {
     if (onRequest === undefined) return null;
     return (
       <div className="synthesis-view synthesis-view--idle">
-        <button className="synthesis-view__generate" onClick={handleGenerate}>
+        <button className="synthesis-view__generate" onClick={onRequest ?? handleGenerate}>
           Generar síntesis
         </button>
       </div>
