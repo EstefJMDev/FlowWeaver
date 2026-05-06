@@ -10,6 +10,7 @@ import { PatternsSection } from "./PatternsSection";
 import { TrustStateSection } from "./TrustStateSection";
 import { FsWatcherSection } from "./FsWatcherSection";
 import { PrivacyDashboardNeverSeen } from "./PrivacyDashboardNeverSeen";
+import { SynthesisSection } from "./SynthesisSection";
 
 interface Props {
   onDataCleared: () => void;
@@ -113,6 +114,8 @@ export function PrivacyDashboard({ onDataCleared }: Props) {
               <FsWatcherSection />
 
               <PrivacyDashboardNeverSeen />
+
+              <SynthesisSection />
             </div>
           ) : (
             <p className="privacy-dashboard__loading">Cargando estadísticas…</p>

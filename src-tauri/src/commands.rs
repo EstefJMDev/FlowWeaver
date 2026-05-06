@@ -1106,6 +1106,7 @@ mod tests {
             include_str!("../../src/components/PatternsSection.tsx"),
             include_str!("../../src/components/TrustStateSection.tsx"),
             include_str!("../../src/components/PrivacyDashboardNeverSeen.tsx"),
+            include_str!("../../src/components/SynthesisSection.tsx"),
         ];
         let forbidden = [
             "resource.url", "resource.title",
