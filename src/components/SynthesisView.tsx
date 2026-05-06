@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 
@@ -42,9 +42,12 @@ export function SynthesisView(props: SynthesisViewProps) {
   const { anchorKey, anchorType, category, synthesisType, titles, domains, onRequest } = props;
   const [state, setState] = useState<SynthesisState>({ status: 'idle' });
   const [copied, setCopied] = useState(false);
+  const contentRef = useRef('');
+  const listenersSetUp = useRef(false);
 
   const handleGenerate = useCallback(async () => {
     if (onRequest) onRequest();
+    contentRef.current = '';
     setState({ status: 'loading' });
     try {
       await invoke('generate_synthesis', {
@@ -70,8 +73,11 @@ export function SynthesisView(props: SynthesisViewProps) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Escuchar eventos Tauri
+  // Escuchar eventos Tauri — ref guard evita doble registro en StrictMode
   useEffect(() => {
+    if (listenersSetUp.current) return;
+    listenersSetUp.current = true;
+
     let unlistenChunk: (() => void) | undefined;
     let unlistenComplete: (() => void) | undefined;
     let unlistenError: (() => void) | undefined;
@@ -81,22 +87,15 @@ export function SynthesisView(props: SynthesisViewProps) {
         'synthesis_chunk',
         (event) => {
           if (event.payload.anchor_key !== anchorKey) return;
-          setState(prev =>
-            prev.status === 'streaming' || prev.status === 'loading'
-              ? { status: 'streaming', content: (prev.status === 'streaming' ? prev.content : '') + event.payload.chunk }
-              : prev
-          );
+          contentRef.current += event.payload.chunk;
+          setState({ status: 'streaming', content: contentRef.current });
         }
       );
       unlistenComplete = await listen<{ anchor_key: string }>(
         'synthesis_complete',
         (event) => {
           if (event.payload.anchor_key !== anchorKey) return;
-          setState(prev =>
-            prev.status === 'streaming'
-              ? { status: 'complete', content: prev.content }
-              : prev
-          );
+          setState({ status: 'complete', content: contentRef.current });
         }
       );
       unlistenError = await listen<{ anchor_key: string; error: string }>(
@@ -109,6 +108,8 @@ export function SynthesisView(props: SynthesisViewProps) {
     })();
 
     return () => {
+      listenersSetUp.current = false;
+      contentRef.current = '';
       unlistenChunk?.();
       unlistenComplete?.();
       unlistenError?.();
