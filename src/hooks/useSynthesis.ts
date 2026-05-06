@@ -6,7 +6,7 @@ export type SynthesisStatus =
   | { status: 'idle' }
   | { status: 'loading' }
   | { status: 'streaming'; content: string }
-  | { status: 'complete'; content: string }
+  | { status: 'complete'; content: string; generatedAt?: number }
   | { status: 'error'; message: string };
 
 export interface SynthesisPayload {
@@ -15,6 +15,14 @@ export interface SynthesisPayload {
   domains: string[];
   synthesisType: string;
   anchorType: 'pattern' | 'session';
+}
+
+interface StoredSynthesisView {
+  anchor_key: string;
+  category: string;
+  synthesis_type: string;
+  content: string;
+  generated_at: number;
 }
 
 export function mapError(backendError: string): string {
@@ -32,10 +40,25 @@ export function mapError(backendError: string): string {
 // Centraliza listeners synthesis_chunk / synthesis_complete / synthesis_error con cleanup,
 // generationId y contentAccumRef para evitar concatenación de contenido entre regeneraciones.
 // Dos instancias en pantalla coexisten limpiamente — cada una filtra por su anchorKey.
+// Al montar, carga la síntesis persistida en BD para que el usuario la vea sin regenerar.
 export function useSynthesis(anchorKey: string) {
   const [state, setState] = useState<SynthesisStatus>({ status: 'idle' });
   const generationIdRef = useRef(0);
   const contentAccumRef = useRef('');
+
+  // Cargar síntesis persistida al montar
+  useEffect(() => {
+    invoke<StoredSynthesisView | null>('get_synthesis_for_anchor', { anchorKey })
+      .then(stored => {
+        if (stored) {
+          contentAccumRef.current = stored.content;
+          setState({ status: 'complete', content: stored.content, generatedAt: stored.generated_at });
+        }
+      })
+      .catch(() => null);
+  // Solo al montar — anchorKey no cambia durante la vida del componente
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     let unlistenChunk: (() => void) | undefined;

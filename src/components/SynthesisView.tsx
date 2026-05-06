@@ -79,6 +79,11 @@ export function SynthesisView(props: SynthesisViewProps) {
   }
 
   if (state.status === 'complete') {
+    const dateLabel = state.generatedAt
+      ? `Generada el ${new Date(state.generatedAt * 1000).toLocaleDateString('es-ES', {
+          day: 'numeric', month: 'short', year: 'numeric',
+        })}`
+      : null;
     return (
       <div className="synthesis-view synthesis-view--complete">
         <div
@@ -104,6 +109,9 @@ export function SynthesisView(props: SynthesisViewProps) {
             </button>
           )}
         </div>
+        {dateLabel && (
+          <p className="synthesis-view__date">{dateLabel}</p>
+        )}
       </div>
     );
   }
