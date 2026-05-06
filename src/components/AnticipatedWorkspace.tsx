@@ -10,22 +10,27 @@ import { CATEGORY_TEMPLATES } from "../templates";
 import { SynthesisView } from './SynthesisView';
 import { SynthesisConsentModal } from './SynthesisConsentModal';
 
+const SYNTHESIS_CATEGORY_MAP: Record<string, string> = {
+  cocina:           'cocina',
+  recetas:          'cocina',
+  gastronomia:      'cocina',
+  entretenimiento:  'entretenimiento',
+  cine:             'entretenimiento',
+  musica:           'entretenimiento',
+  juegos:           'entretenimiento',
+  noticias:         'noticias',
+  actualidad:       'noticias',
+  tecnologia:       'tecnologia',
+  programacion:     'tecnologia',
+  desarrollo:       'tecnologia',
+};
+
 function mapCategoryToSynthesisType(category: string): string {
-  const map: Record<string, string> = {
-    cocina:           'cocina',
-    recetas:          'cocina',
-    gastronomia:      'cocina',
-    entretenimiento:  'entretenimiento',
-    cine:             'entretenimiento',
-    musica:           'entretenimiento',
-    juegos:           'entretenimiento',
-    noticias:         'noticias',
-    actualidad:       'noticias',
-    tecnologia:       'tecnologia',
-    programacion:     'tecnologia',
-    desarrollo:       'tecnologia',
-  };
-  return map[category.toLowerCase()] ?? 'noticias';
+  return SYNTHESIS_CATEGORY_MAP[category.toLowerCase()] ?? 'noticias';
+}
+
+function categoryHasDirectMapping(category: string): boolean {
+  return category.toLowerCase() in SYNTHESIS_CATEGORY_MAP;
 }
 
 interface Props {
@@ -44,7 +49,7 @@ export function AnticipatedWorkspace({ episodes }: Props) {
 
   const preciseEpisodes = episodes
     .filter((e) => e.mode === "Precise")
-    .sort((a, b) => b.coherence - a.coherence);
+    .sort((a, b) => b.window_end - a.window_end);
 
   if (preciseEpisodes.length === 0) return null;
 
@@ -121,6 +126,12 @@ export function AnticipatedWorkspace({ episodes }: Props) {
           })}
         </ul>
       </div>
+
+      {import.meta.env.DEV && (trustState === 'Trusted' || trustState === 'Autonomous') && !categoryHasDirectMapping(category) && (
+        <div style={{ background: '#fff3cd', padding: '4px 8px', fontSize: 11, borderRadius: 4, margin: '4px 0' }}>
+          [DEV] categoría "{category}" sin mapeo directo → proxy usará 'noticias'
+        </div>
+      )}
 
       {(trustState === 'Trusted' || trustState === 'Autonomous') && (
         <SynthesisView
