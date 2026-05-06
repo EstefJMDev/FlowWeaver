@@ -752,12 +752,12 @@ pub async fn generate_synthesis(
         )
         .await;
 
-        let full_content = match fetch_result {
-            Ok(c) => {
+        let (full_content, proxy_remaining) = match fetch_result {
+            Ok((c, r)) => {
                 let _ = app.emit("synthesis_complete", serde_json::json!({
                     "anchor_key": anchor_key,
                 }));
-                c
+                (c, r)
             }
             Err(e) => {
                 let _ = app.emit("synthesis_error", serde_json::json!({
@@ -791,16 +791,33 @@ pub async fn generate_synthesis(
                 },
             )
             .map_err(|e| e.to_string())?;
+
+            // Persistir contador del proxy para que get_synthesis_usage lo prefiera
+            if let Some(remaining) = proxy_remaining {
+                let _ = db.set_pref("synthesis_remaining_last", &remaining.to_string());
+                let _ = db.set_pref("synthesis_remaining_seen_at", &now_unix.to_string());
+            }
         }
 
         Ok(())
     }
 }
 
-/// Devuelve el uso de síntesis del mes actual (contador local).
-/// Usado por SynthesisSection.tsx (T-3-011).
+fn count_local_syntheses(conn: &rusqlite::Connection, month_start: i64) -> i64 {
+    conn.query_row(
+        "SELECT COUNT(*) FROM syntheses WHERE generated_at >= ?1",
+        rusqlite::params![month_start],
+        |row| row.get(0),
+    ).unwrap_or(0)
+}
+
+/// Devuelve el uso de síntesis del mes actual.
+/// Fuente de verdad: header `x-synthesis-remaining` del proxy (persistido en user_prefs
+/// tras cada síntesis exitosa, válido 24h). Fallback: conteo local por mes calendario UTC.
 #[tauri::command]
 pub fn get_synthesis_usage(state: State<'_, DbState>) -> Result<SynthesisUsage, String> {
+    use chrono::{Datelike, TimeZone, Utc};
+
     let db = state.0.lock().map_err(|e| e.to_string())?;
     let conn = db.conn();
     syntheses_store::ensure_schema(conn).map_err(|e| e.to_string())?;
@@ -811,14 +828,32 @@ pub fn get_synthesis_usage(state: State<'_, DbState>) -> Result<SynthesisUsage, 
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
-    let month_start = now - (now % (30 * 24 * 3600));
-    let used: i64 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM syntheses WHERE generated_at >= ?1",
-            rusqlite::params![month_start],
-            |row| row.get(0),
-        )
-        .unwrap_or(0);
+
+    // Mes calendario UTC — coherente con el proxy (usa yyyymm)
+    let now_dt = Utc::now();
+    let month_start_dt = Utc
+        .with_ymd_and_hms(now_dt.year(), now_dt.month(), 1, 0, 0, 0)
+        .single()
+        .ok_or("invalid month start")?;
+    let month_start = month_start_dt.timestamp();
+
+    // Preferir contador del proxy si fue visto en las últimas 24h
+    const LIMIT: i64 = 5;
+    let used: i64 = {
+        let proxy_remaining = db.get_pref("synthesis_remaining_last").ok().flatten()
+            .and_then(|s| s.parse::<i64>().ok());
+        let proxy_seen_at = db.get_pref("synthesis_remaining_seen_at").ok().flatten()
+            .and_then(|s| s.parse::<i64>().ok());
+        if let (Some(remaining), Some(seen_at)) = (proxy_remaining, proxy_seen_at) {
+            if now - seen_at < 24 * 3600 {
+                (LIMIT - remaining).max(0)
+            } else {
+                count_local_syntheses(conn, month_start)
+            }
+        } else {
+            count_local_syntheses(conn, month_start)
+        }
+    };
 
     let token_set = synthesis_tokens::is_token_set(conn).unwrap_or(false);
     let has_consent = consent_log_store::has_consent(conn, "synthesis", "synthesis_v1")
@@ -826,7 +861,7 @@ pub fn get_synthesis_usage(state: State<'_, DbState>) -> Result<SynthesisUsage, 
 
     Ok(SynthesisUsage {
         used_this_month:  used as u32,
-        limit_this_month: 5,
+        limit_this_month: LIMIT as u32,
         synthesis_active: token_set && has_consent,
     })
 }
@@ -1586,5 +1621,37 @@ mod tests {
                 p.label
             );
         }
+    }
+
+    #[test]
+    fn test_get_synthesis_usage_uses_calendar_month() {
+        use chrono::{Datelike, TimeZone, Utc};
+
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        crate::syntheses_store::ensure_schema(&conn).unwrap();
+
+        let now_dt = Utc::now();
+        let month_start_dt = Utc
+            .with_ymd_and_hms(now_dt.year(), now_dt.month(), 1, 0, 0, 0)
+            .single()
+            .expect("valid month start");
+        let month_start = month_start_dt.timestamp();
+
+        // Síntesis del mes anterior (month_start - 1 día)
+        conn.execute(
+            "INSERT INTO syntheses (anchor_key, anchor_type, category, synthesis_type, content_encrypted, generated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            rusqlite::params!["anc-prev", "session", "cocina", "cocina", "enc", month_start - 86_400],
+        ).unwrap();
+
+        // Síntesis del mes actual (month_start + 1 hora)
+        conn.execute(
+            "INSERT INTO syntheses (anchor_key, anchor_type, category, synthesis_type, content_encrypted, generated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            rusqlite::params!["anc-cur", "session", "cocina", "cocina", "enc", month_start + 3_600],
+        ).unwrap();
+
+        let used = super::count_local_syntheses(&conn, month_start);
+        assert_eq!(used, 1, "solo la síntesis del mes actual debe contarse");
     }
 }

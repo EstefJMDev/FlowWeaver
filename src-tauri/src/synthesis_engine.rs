@@ -99,12 +99,14 @@ fn parse_sse_chunk(line: &str) -> Option<String> {
 
 /// Llama al proxy y parsea el stream SSE. Toma datos en propiedad — es Send.
 /// Usada por commands::generate_synthesis (que no puede tener &Connection en el await).
+/// Devuelve (contenido_completo, remaining) donde remaining viene del header
+/// `x-synthesis-remaining` (None si el proxy no lo envía).
 pub(crate) async fn fetch_from_proxy(
     token: &str,
     body: String,
     proxy_url: &str,
     on_chunk: impl Fn(&str),
-) -> Result<String, SynthesisError> {
+) -> Result<(String, Option<i64>), SynthesisError> {
     use futures_util::StreamExt;
 
     let client = reqwest::Client::builder()
@@ -128,6 +130,13 @@ pub(crate) async fn fetch_from_proxy(
         200 => {}
         _   => return Err(SynthesisError::Http(format!("HTTP {}", response.status()))),
     }
+
+    // Leer header antes de consumir el body
+    let remaining: Option<i64> = response
+        .headers()
+        .get("x-synthesis-remaining")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.parse::<i64>().ok());
 
     let mut stream = response.bytes_stream();
     let mut full_content = String::new();
@@ -154,7 +163,7 @@ pub(crate) async fn fetch_from_proxy(
     if full_content.is_empty() {
         return Err(SynthesisError::ProviderUnavailable);
     }
-    Ok(full_content)
+    Ok((full_content, remaining))
 }
 
 /// Genera una síntesis y la persiste en SQLCipher.
@@ -196,7 +205,7 @@ pub async fn generate_and_persist(
         .map_err(|e| SynthesisError::Http(e.to_string()))?;
 
     // 4. HTTP call — fetch_from_proxy maneja la conexión y el parsing SSE
-    let full_content = fetch_from_proxy(&token, body, proxy_url, on_chunk).await?;
+    let (full_content, _remaining) = fetch_from_proxy(&token, body, proxy_url, on_chunk).await?;
 
     // 5. Persistir cifrado
     let key = commands::db_key(app);

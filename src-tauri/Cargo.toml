@@ -26,6 +26,8 @@ rand = { version = "0.8", features = ["getrandom"] }
 sha2 = "0.10"
 # Async time for background relay loop (Tauri async runtime is tokio)
 tokio = { version = "1", features = ["time"] }
+# Fechas UTC para mes calendario (get_synthesis_usage — coherencia con proxy yyyymm)
+chrono = { version = "0.4", features = ["clock"] }
 
 # Desktop: SQLCipher con OpenSSL vendored. Android: SQLite bundled (SQLCipher vendored-openssl
 # no compila en cross-compilación Windows→Android por limitación de openssl-src/perl).
