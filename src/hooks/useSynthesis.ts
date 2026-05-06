@@ -39,15 +39,28 @@ export function mapError(backendError: string): string {
 
 // Centraliza listeners synthesis_chunk / synthesis_complete / synthesis_error con cleanup,
 // generationId y contentAccumRef para evitar concatenación de contenido entre regeneraciones.
-// Dos instancias en pantalla coexisten limpiamente — cada una filtra por su anchorKey.
-// Al montar, carga la síntesis persistida en BD para que el usuario la vea sin regenerar.
+// stateRef espeja el estado React para lecturas síncronas (usadas por generateIfIdle y cooldown).
+// BD load es reactivo a anchorKey: reset + recarga cuando cambia el episodio activo.
 export function useSynthesis(anchorKey: string) {
-  const [state, setState] = useState<SynthesisStatus>({ status: 'idle' });
+  const [state, setStateRaw] = useState<SynthesisStatus>({ status: 'idle' });
+  const stateRef = useRef<SynthesisStatus>({ status: 'idle' });
   const generationIdRef = useRef(0);
   const contentAccumRef = useRef('');
 
-  // Cargar síntesis persistida al montar
+  function setState(s: SynthesisStatus) {
+    stateRef.current = s;
+    setStateRaw(s);
+  }
+
+  // Cargar síntesis persistida al montar o al cambiar de episodio (anchorKey)
   useEffect(() => {
+    if (!anchorKey) return;
+    // Reset inmediato al cambiar de episodio
+    contentAccumRef.current = '';
+    const idle: SynthesisStatus = { status: 'idle' };
+    stateRef.current = idle;
+    setStateRaw(idle);
+
     invoke<StoredSynthesisView | null>('get_synthesis_for_anchor', { anchorKey })
       .then(stored => {
         if (stored) {
@@ -56,11 +69,10 @@ export function useSynthesis(anchorKey: string) {
         }
       })
       .catch(() => null);
-  // Solo al montar — anchorKey no cambia durante la vida del componente
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [anchorKey]);
 
   useEffect(() => {
+    if (!anchorKey) return;
     let unlistenChunk: (() => void) | undefined;
     let unlistenComplete: (() => void) | undefined;
     let unlistenError: (() => void) | undefined;
@@ -115,11 +127,18 @@ export function useSynthesis(anchorKey: string) {
     }
   }, [anchorKey]);
 
+  // Solo genera si el estado actual (por stateRef, no closure) es idle.
+  // Evita sobreescribir una síntesis recién cargada de BD o ya en progreso.
+  const generateIfIdle = useCallback(async (payload: SynthesisPayload) => {
+    if (stateRef.current.status !== 'idle') return;
+    await generate(payload);
+  }, [generate]);
+
   const reset = useCallback(() => {
     generationIdRef.current += 1;
     contentAccumRef.current = '';
     setState({ status: 'idle' });
   }, []);
 
-  return { state, generate, reset };
+  return { state, generate, generateIfIdle, reset };
 }

@@ -16,7 +16,7 @@ function EpisodeSynthesisButton({ episode }: { episode: Episode }) {
     category,
     titles: episode.resources.map(r => r.title),
     domains: episode.resources.map(r => r.domain),
-    synthesisType: mapCategoryToSynthesisType(category),
+    synthesisType: mapCategoryToSynthesisType(category)!, // canSynthesize guard arriba garantiza non-null
     anchorType: 'session' as const,
   };
 

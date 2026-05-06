@@ -1331,6 +1331,14 @@ body { min-height: 100vh; }
 .mobile-privacy__clear-btn:active { background: rgba(224, 96, 96, 0.2); }
 .mobile-privacy__clear-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
+/* Indicador discreto de auto-síntesis (Autonomous) — mismo nivel visual que el footer fecha */
+.synthesis-view__auto-flag {
+  display: block;
+  font-size: 0.8em;
+  color: #888;
+  margin-bottom: 8px;
+}
+
 /* Disclaimer síntesis IA */
 .synthesis-view__disclaimer {
   font-size: 0.8em;
