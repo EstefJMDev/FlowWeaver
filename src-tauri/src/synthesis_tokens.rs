@@ -10,11 +10,24 @@ use rusqlite::Connection;
 pub(crate) fn ensure_schema(conn: &Connection) -> Result<(), rusqlite::Error> {
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS synthesis_tokens (
-            id          INTEGER PRIMARY KEY CHECK (id = 1),
-            token_hash  TEXT NOT NULL,
-            set_at      INTEGER NOT NULL
+            id              INTEGER PRIMARY KEY CHECK (id = 1),
+            token_encrypted TEXT NOT NULL,
+            set_at          INTEGER NOT NULL
         );",
     )?;
+    // Migración Fase 3 → 3.1: rename token_hash → token_encrypted si la columna antigua existe.
+    let column_exists: bool = conn
+        .query_row(
+            "SELECT 1 FROM pragma_table_info('synthesis_tokens') WHERE name = 'token_hash'",
+            [],
+            |_| Ok(true),
+        )
+        .unwrap_or(false);
+    if column_exists {
+        conn.execute_batch(
+            "ALTER TABLE synthesis_tokens RENAME COLUMN token_hash TO token_encrypted;",
+        )?;
+    }
     Ok(())
 }
 
@@ -24,7 +37,7 @@ pub(crate) fn set_token(
     now_unix: i64,
 ) -> Result<(), rusqlite::Error> {
     conn.execute(
-        "INSERT OR REPLACE INTO synthesis_tokens (id, token_hash, set_at) VALUES (1, ?1, ?2)",
+        "INSERT OR REPLACE INTO synthesis_tokens (id, token_encrypted, set_at) VALUES (1, ?1, ?2)",
         rusqlite::params![token_encrypted, now_unix],
     )?;
     Ok(())
@@ -32,7 +45,7 @@ pub(crate) fn set_token(
 
 pub(crate) fn get_token(conn: &Connection) -> Result<Option<String>, rusqlite::Error> {
     let result = conn.query_row(
-        "SELECT token_hash FROM synthesis_tokens WHERE id = 1",
+        "SELECT token_encrypted FROM synthesis_tokens WHERE id = 1",
         [],
         |r| r.get::<_, String>(0),
     );
@@ -103,5 +116,45 @@ mod tests {
     fn test_get_token_returns_none_when_empty() {
         let conn = open_mem();
         assert_eq!(get_token(&conn).unwrap(), None);
+    }
+
+    #[test]
+    fn test_token_hash_to_token_encrypted_migration() {
+        // Simula BD Fase 3 con schema viejo (token_hash).
+        let conn = Connection::open_in_memory().expect("open");
+        conn.execute_batch(
+            "CREATE TABLE synthesis_tokens (
+                id         INTEGER PRIMARY KEY CHECK (id = 1),
+                token_hash TEXT NOT NULL,
+                set_at     INTEGER NOT NULL
+            );
+            INSERT INTO synthesis_tokens (id, token_hash, set_at) VALUES (1, 'legacy-ct', 999);",
+        )
+        .expect("create old schema");
+
+        // Ejecutar ensure_schema sobre BD con schema viejo.
+        ensure_schema(&conn).expect("migration failed");
+
+        // La columna debe llamarse token_encrypted y los datos siguen.
+        let col_new: bool = conn
+            .query_row(
+                "SELECT 1 FROM pragma_table_info('synthesis_tokens') WHERE name = 'token_encrypted'",
+                [],
+                |_| Ok(true),
+            )
+            .unwrap_or(false);
+        assert!(col_new, "token_encrypted column must exist after migration");
+
+        let col_old: bool = conn
+            .query_row(
+                "SELECT 1 FROM pragma_table_info('synthesis_tokens') WHERE name = 'token_hash'",
+                [],
+                |_| Ok(true),
+            )
+            .unwrap_or(false);
+        assert!(!col_old, "token_hash column must not exist after migration");
+
+        let stored = get_token(&conn).unwrap();
+        assert_eq!(stored, Some("legacy-ct".to_string()), "data preserved after migration");
     }
 }
